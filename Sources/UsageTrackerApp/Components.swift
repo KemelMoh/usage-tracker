@@ -442,6 +442,55 @@ struct ErrorBanner: View {
     }
 }
 
+struct UpdateBanner: View {
+    let update: AppUpdate
+    let isDownloading: Bool
+    let onDownload: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(.blue)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Actualización \(update.version) disponible")
+                    .font(.caption.weight(.semibold))
+                Text("Descarga el DMG y arrástralo a Aplicaciones.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                onDownload()
+            } label: {
+                if isDownloading {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Text("Descargar")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isDownloading)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Ignorar esta actualización")
+        }
+        .padding(10)
+        .background(Color.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 struct AlertRow: View {
     let alert: AppAlert
     let now: Date

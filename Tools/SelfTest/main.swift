@@ -709,6 +709,40 @@ check(
     "cada proveedor calcula sus propias recomendaciones"
 )
 
+// MARK: - Actualizaciones
+
+section("Actualizaciones")
+
+check(UpdateChecker.isNewer("v0.2.0", than: "0.1.0"), "detecta versión nueva")
+check(UpdateChecker.isNewer("0.1.10", than: "0.1.9"), "compara componentes numéricos")
+check(!UpdateChecker.isNewer("0.1.0", than: "0.1.0"), "no marca la misma versión")
+check(!UpdateChecker.isNewer("v0.1.0", than: "0.2.0"), "no marca una versión anterior")
+
+let releaseJSON = """
+{
+  "tag_name": "v0.2.0",
+  "name": "Usage Tracker 0.2.0",
+  "body": "Mejoras y correcciones",
+  "html_url": "https://github.com/KemelMoh/usage-tracker/releases/tag/v0.2.0",
+  "published_at": "2026-10-29T10:00:00Z",
+  "assets": [
+    {
+      "name": "UsageTracker-0.2.0.dmg",
+      "browser_download_url": "https://github.com/KemelMoh/usage-tracker/releases/download/v0.2.0/UsageTracker-0.2.0.dmg"
+    }
+  ]
+}
+"""
+
+do {
+    let update = try UpdateChecker.parse(data: releaseJSON.data(using: .utf8)!)
+    checkEqual(update?.version, "0.2.0", "versión de la release")
+    checkEqual(update?.dmgURL.lastPathComponent, "UsageTracker-0.2.0.dmg", "DMG de la release")
+    checkEqual(update?.publishedAt != nil, true, "fecha de la release")
+} catch {
+    check(false, "parseo de release: \(error)")
+}
+
 // MARK: - Persistencia
 
 section("Persistencia")

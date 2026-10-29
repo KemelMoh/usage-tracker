@@ -53,8 +53,14 @@ final class AppModel: ObservableObject {
             )
         }
     }
+    @Published private(set) var availableUpdate: AppUpdate?
+    @Published private(set) var isCheckingForUpdates = false
+    @Published private(set) var isDownloadingUpdate = false
+    @Published private(set) var lastUpdateCheck: Date?
+    @Published var updateError: String?
 
     private static let modelRecommendationsKey = "modelRecommendationsEnabled"
+    private static let lastUpdateCheckKey = "lastUpdateCheck"
 
     private var alertKeys: [String: Date] = [:]
     private var timer: Timer?
@@ -66,6 +72,8 @@ final class AppModel: ObservableObject {
         self.settings = state.settings
         self.modelRecommendationsEnabled = UserDefaults.standard
             .object(forKey: Self.modelRecommendationsKey) as? Bool ?? false
+        self.lastUpdateCheck = UserDefaults.standard
+            .object(forKey: Self.lastUpdateCheckKey) as? Date
         self.snapshots = Self.decodeSnapshots(state.snapshots)
         self.history = Self.decodeHistory(state.history)
         self.alerts = state.alerts
@@ -84,6 +92,7 @@ final class AppModel: ObservableObject {
         configureClock()
 
         Task { await refresh() }
+        Task { await checkForUpdatesIfNeeded() }
 
         if settings.alertsEnabled {
             Task { _ = await NotificationService.requestPermission() }
@@ -218,6 +227,77 @@ final class AppModel: ObservableObject {
         let active = Set(activeProviders)
         alerts.removeAll { active.contains($0.provider) }
         persist()
+    }
+
+    // MARK: - Updates
+
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "0.1.0"
+    }
+
+    func checkForUpdatesIfNeeded() async {
+        guard availableUpdate == nil else { return }
+        if let lastUpdateCheck,
+           Date().timeIntervalSince(lastUpdateCheck) < 24 * 3_600 {
+            return
+        }
+        await checkForUpdates(silent: true)
+    }
+
+    func checkForUpdates(silent: Bool = false) async {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+
+        do {
+            if let latest = try await UpdateChecker.latest(),
+               UpdateChecker.isNewer(latest.version, than: appVersion) {
+                availableUpdate = latest
+                updateError = nil
+            } else {
+                availableUpdate = nil
+                updateError = nil
+            }
+            lastUpdateCheck = Date()
+            UserDefaults.standard.set(lastUpdateCheck, forKey: Self.lastUpdateCheckKey)
+        } catch {
+            if !silent {
+                updateError = "No se pudo comprobar la actualización: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func downloadUpdate(_ update: AppUpdate) async {
+        guard !isDownloadingUpdate else { return }
+        isDownloadingUpdate = true
+        defer { isDownloadingUpdate = false }
+
+        do {
+            let (data, _) = try await HTTPClient.shared.get(
+                url: update.dmgURL,
+                headers: [
+                    "Accept": "application/octet-stream",
+                    "User-Agent": "UsageTracker/0.1"
+                ]
+            )
+            let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+            let destination = downloads.appendingPathComponent(update.dmgURL.lastPathComponent)
+            try data.write(to: destination, options: .atomic)
+            updateError = nil
+            NSWorkspace.shared.open(destination)
+        } catch {
+            updateError = "No se pudo descargar el DMG: \(error.localizedDescription)"
+        }
+    }
+
+    func dismissUpdate() {
+        availableUpdate = nil
+    }
+
+    func clearUpdateError() {
+        updateError = nil
     }
 
     // MARK: - Refresh

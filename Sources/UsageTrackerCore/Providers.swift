@@ -8,6 +8,9 @@ public final class HTTPClient {
     static let allowedHosts: Set<String> = [
         "opencode.ai",
         "api.github.com",
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
         "api.anthropic.com",
         "models.dev"
     ]

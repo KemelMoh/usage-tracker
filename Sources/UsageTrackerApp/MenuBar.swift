@@ -177,6 +177,17 @@ struct PopoverView: View {
             VStack(spacing: 10) {
                 usageSummary
 
+                if let update = model.availableUpdate {
+                    UpdateBanner(
+                        update: update,
+                        isDownloading: model.isDownloadingUpdate,
+                        onDownload: {
+                            Task { await model.downloadUpdate(update) }
+                        },
+                        onDismiss: model.dismissUpdate
+                    )
+                }
+
                 if let error = model.lastError {
                     ErrorBanner(message: error, onDismiss: model.clearError)
                 }

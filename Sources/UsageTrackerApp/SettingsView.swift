@@ -23,6 +23,7 @@ struct SettingsView: View {
                 general
                 alerts
                 data
+                updates
                 about
             }
             .padding(24)
@@ -137,13 +138,107 @@ struct SettingsView: View {
         }
     }
 
+    private var updates: some View {
+        SettingsSection(
+            title: "Actualizaciones",
+            subtitle: "Versión instalada \(model.appVersion)"
+        ) {
+            if let update = model.availableUpdate {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+                        Text("Nueva versión \(update.version)")
+                            .font(.headline)
+                        Spacer()
+                    }
+
+                    if !update.notes.isEmpty {
+                        Text(update.notes)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await model.downloadUpdate(update) }
+                        } label: {
+                            if model.isDownloadingUpdate {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Label("Descargar DMG", systemImage: "arrow.down.circle")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(model.isDownloadingUpdate)
+
+                        Link("Ver release", destination: update.pageURL)
+                            .font(.caption)
+                            .buttonStyle(.link)
+
+                        Spacer()
+
+                        Button("Ignorar") {
+                            model.dismissUpdate()
+                        }
+                        .font(.caption)
+                        .buttonStyle(.link)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Text(lastUpdateText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        Task { await model.checkForUpdates() }
+                    } label: {
+                        if model.isCheckingForUpdates {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label("Buscar actualizaciones", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(model.isCheckingForUpdates)
+                }
+            }
+
+            if let error = model.updateError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Descarga el DMG desde GitHub Releases. La instalación sigue siendo manual: abre el DMG y arrastra la app a Aplicaciones.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var lastUpdateText: String {
+        guard let last = model.lastUpdateCheck else {
+            return "Aún no se ha comprobado."
+        }
+        return "Última comprobación: \(Format.relative(last, now: model.now))"
+    }
+
     private var about: some View {
-        SettingsSection(title: "Acerca de Usage Tracker", subtitle: "Versión 0.1.0") {
+        SettingsSection(title: "Acerca de Usage Tracker", subtitle: "Versión \(model.appVersion)") {
             Text("Usage Tracker centraliza el uso de OpenCode Go, GitHub Copilot y Claude en la barra de menús de macOS.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Sin backend, sin telemetría y sin sincronización en nube. Las peticiones de red van solo a opencode.ai, api.github.com, api.anthropic.com y models.dev. Las credenciales se leen del Keychain o de las herramientas locales y se mantienen en memoria durante la petición.")
+            Text("Sin backend, sin telemetría y sin sincronización en nube. Las peticiones de red van solo a opencode.ai, api.github.com, api.anthropic.com, models.dev, github.com, objects.githubusercontent.com y release-assets.githubusercontent.com; los hosts de GitHub se usan también para comprobar actualizaciones y descargar el DMG. Las credenciales se leen del Keychain o de las herramientas locales y se mantienen en memoria durante la petición.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -11,6 +11,7 @@ Sin backend, sin telemetría y sin sincronización en la nube: todo se queda en 
 - **Cuota actual** de cada proveedor con ventanas de uso (5 h, semanal, mensual…), porcentaje consumido y cuenta atrás hasta el reinicio.
 - **Catálogo de modelos** con contexto, precios de entrada/salida, caché y capacidad de razonamiento o herramientas. Se combina el listado en vivo de OpenCode Go con los precios de `models.dev`. Los modelos con tarifa 0 se marcan con **Gratis**.
 - **Recomendaciones de modelos (beta)**: con la feature flag activada, sugiere 3 modelos distintos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M. Solo considera modelos con precio publicado, no gratuitos, no deprecated y de los últimos 6 meses.
+- **Comprobación de actualizaciones**: consulta GitHub Releases una vez al día y permite descargar el DMG de la nueva versión desde la app. La instalación sigue siendo manual.
 - **Historial diario** de tokens y coste estimado, con gráficas (Swift Charts) de 7, 30 o 90 días y desglose por modelo.
 - **Previsión** de consumo al final de cada ventana según el ritmo actual.
 - **Alertas locales** al cruzar el 75 %, 90 % o 100 % y cuando la previsión indica que te pasarás. Puedes descartarlas con la cruz de cada alerta o limpiar todas desde el resumen.
@@ -63,6 +64,17 @@ git push origin v0.1.0
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
 
 Para que cualquiera pueda descargar el DMG, el repositorio (o al menos sus releases) debe ser público.
+
+## Actualizaciones desde la app
+
+La app consulta una vez al día la última release de GitHub y muestra un aviso si hay una versión más nueva. Desde **Ajustes → Actualizaciones** puedes:
+
+- hacer una comprobación manual;
+- ver la versión y las notas;
+- descargar el DMG;
+- abrir la página de la release.
+
+La app no reemplaza ni reinstala el bundle automáticamente: abre el DMG descargado y el usuario arrastra la app a Aplicaciones. Esto evita los problemas de firma y cuarentena de un actualizador completo sin Developer ID.
 
 ## Planes de suscripción
 
@@ -122,7 +134,7 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 
 ## Privacidad
 
-- Solo se hacen peticiones a `opencode.ai`, `api.github.com`, `api.anthropic.com` y `models.dev`; el cliente HTTP bloquea hosts y redirecciones fuera de esa lista.
+- Solo se hacen peticiones a `opencode.ai`, `api.github.com`, `api.anthropic.com`, `models.dev`, `github.com`, `objects.githubusercontent.com` y `release-assets.githubusercontent.com`; el cliente HTTP bloquea hosts y redirecciones fuera de esa lista. Los hosts de GitHub se usan para comprobar actualizaciones y descargar el DMG.
 - No se leen credenciales, cuotas ni historial de proveedores desactivados. En particular, desactivar Claude evita el aviso del llavero de macOS en los refrescos.
 - No hay analytics, crash reporting ni servidores propios.
 - El historial de Claude se procesa en local y no sale del Mac.
@@ -168,7 +180,7 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 swift run UsageTrackerSelfTest
 ```
 
-Ejecuta 146 comprobaciones sobre previsiones, alertas, fusión de historial, precios dinámicos, catálogo de modelos, recomendaciones, detección de planes, formato y persistencia. No toca credenciales ni red.
+Ejecuta 153 comprobaciones sobre previsiones, alertas, fusión de historial, precios dinámicos, catálogo de modelos, recomendaciones, actualizaciones, detección de planes, formato y persistencia. No toca credenciales ni red.
 
 ## Licencia
 
