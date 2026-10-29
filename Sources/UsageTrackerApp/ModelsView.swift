@@ -191,57 +191,7 @@ struct ModelsCatalogView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            if model.modelRecommendationsEnabled, showRecommendedOnly {
-                Text(capsDescription)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
-    }
-
-    /// Texto con los topes de la banda.
-    ///
-    /// Los topes dependen del proveedor: el catálogo de OpenCode Go es mucho
-    /// más barato que el de Claude o Copilot. Con un filtro concreto se
-    /// muestran los de ese proveedor; sin filtro se indica que varían y el
-    /// detalle queda en la ayuda de cada distintivo.
-    private var capsDescription: String {
-        let suffix = "Dentro del tope, contexto y recencia."
-
-        if let providerFilter {
-            return "Topes por 1M en \(providerFilter.displayName) (entrada/salida): "
-                + "\(capsText(for: providerFilter)). \(suffix)"
-        }
-
-        // Sin filtro se resume por proveedor para no saturar el panel.
-        let parts = visibleCapProviders.map { provider in
-            "\(provider.displayName): \(capsText(for: provider))"
-        }
-        return "Topes por 1M (entrada/salida): \(parts.joined(separator: " · ")). \(suffix)"
-    }
-
-    /// Topes de las tres bandas de un proveedor.
-    private func capsText(for provider: ProviderID) -> String {
-        let caps = WorkloadPriceCaps.caps(for: provider)
-        return WorkloadBadge.allCases.map { badge -> String in
-            let cap = caps[badge]!
-            return "\(badge.title) ≤ \(capPrice(cap.maxInputPerMillion))/\(capPrice(cap.maxOutputPerMillion))"
-        }
-        .joined(separator: " · ")
-    }
-
-    /// Proveedores cuyos topes se resumen. Sin filtro, los que aparecen en el
-    /// listado.
-    private var visibleCapProviders: [ProviderID] {
-        let present = Set(recommendationIndex.byProvider.filter { !$0.value.isEmpty }.keys)
-        let ordered = ProviderID.allCases.filter { present.contains($0) }
-        return ordered.isEmpty ? [.claude] : ordered
-    }
-
-    private func capPrice(_ value: Double) -> String {
-        String(format: "$%.2f", value)
     }
 
     private var searchField: some View {
