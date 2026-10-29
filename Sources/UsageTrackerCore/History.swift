@@ -29,8 +29,9 @@ public enum ClaudeHistoryLoader {
     public static func load(days: Int = 120, prices: [ModelPrice]? = nil) -> [DailyUsage] {
         let cutoff = DateUtils.daysAgo(days)
         var byDay: [String: DailyUsage] = [:]
+        let resolver = PricingCatalog.Resolver(catalog: prices)
 
-        let cache = loadStatsCache(prices: prices)
+        let cache = loadStatsCache(prices: prices, resolver: resolver)
         for (day, models) in cache.daily {
             guard let date = DateUtils.parseDay(day), date >= cutoff else { continue }
 
@@ -40,7 +41,7 @@ public enum ClaudeHistoryLoader {
 
             for (model, tokens) in models {
                 let rate = cache.blended[model]
-                    ?? PricingCatalog.price(for: model, catalog: prices).input / 1_000_000
+                    ?? resolver.price(for: model).input / 1_000_000
                 let cost = Double(tokens) * rate
                 totalTokens += tokens
                 totalCost += cost
@@ -61,7 +62,7 @@ public enum ClaudeHistoryLoader {
             )
         }
 
-        let transcripts = ClaudeTranscriptScanner.scan(days: days, prices: prices)
+        let transcripts = ClaudeTranscriptScanner.scan(days: days, resolver: resolver)
         for (day, usage) in transcripts {
             byDay[day] = usage
         }
@@ -74,7 +75,10 @@ public enum ClaudeHistoryLoader {
         var blended: [String: Double]
     }
 
-    private static func loadStatsCache(prices: [ModelPrice]?) -> StatsCache {
+    private static func loadStatsCache(
+        prices: [ModelPrice]?,
+        resolver: PricingCatalog.Resolver
+    ) -> StatsCache {
         guard let data = try? Data(contentsOf: ClaudePaths.statsCacheFile),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return StatsCache(daily: [:], blended: [:])
@@ -104,7 +108,7 @@ public enum ClaudeHistoryLoader {
                     cacheWrite: intValue(usage["cacheCreationInputTokens"])
                 )
                 guard tokens.total > 0 else { continue }
-                let cost = PricingCatalog.cost(model: model, tokens: tokens, catalog: prices)
+                let cost = resolver.cost(model: model, tokens: tokens)
                 blended[model] = cost / Double(tokens.total)
             }
         }
@@ -123,6 +127,13 @@ public enum ClaudeHistoryLoader {
 
 public enum ClaudeTranscriptScanner {
     public static func scan(days: Int = 120, prices: [ModelPrice]? = nil) -> [String: DailyUsage] {
+        scan(days: days, resolver: PricingCatalog.Resolver(catalog: prices))
+    }
+
+    public static func scan(
+        days: Int = 120,
+        resolver: PricingCatalog.Resolver
+    ) -> [String: DailyUsage] {
         let fileManager = FileManager.default
         let cutoff = DateUtils.daysAgo(days)
         guard let enumerator = fileManager.enumerator(
@@ -173,7 +184,7 @@ public enum ClaudeTranscriptScanner {
                 )
                 guard tokens.total > 0 else { continue }
 
-                let cost = PricingCatalog.cost(model: model, tokens: tokens, catalog: prices)
+                let cost = resolver.cost(model: model, tokens: tokens)
                 let key = DateUtils.dayKey(date)
                 dayDates[key] = DateUtils.startOfDay(date)
 

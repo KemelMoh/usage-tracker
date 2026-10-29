@@ -153,7 +153,7 @@ struct OverviewView: View {
                                     subscription: model.subscription(for: provider),
                                     settings: model.settings,
                                     isStale: model.isStale(snapshot),
-                                    now: model.now,
+                                    clock: model.clock,
                                     compact: false,
                                     showModels: true
                                 )
@@ -193,7 +193,7 @@ struct OverviewView: View {
                 } else {
                     VStack(spacing: 8) {
                         ForEach(model.visibleAlerts.suffix(6)) { alert in
-                            AlertRow(alert: alert, now: model.now) {
+                            AlertRow(alert: alert, clock: model.clock) {
                                 model.dismissAlert(alert)
                             }
                         }
@@ -231,7 +231,8 @@ struct ValueSummaryCard: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let values = model.usageValues
+        return VStack(alignment: .leading, spacing: 10) {
             if !model.settings.showEstimates {
                 Text("Las estimaciones están desactivadas en Ajustes.")
                     .font(.caption)
@@ -247,7 +248,7 @@ struct ValueSummaryCard: View {
                         Text(provider.displayName)
                             .font(.caption.weight(.medium))
                         Spacer()
-                        Text(Format.money(model.usageValue(for: provider), settings: model.settings))
+                        Text(Format.money(values[provider] ?? 0, settings: model.settings))
                             .font(.caption.weight(.semibold))
                             .monospacedDigit()
                     }
@@ -278,23 +279,52 @@ struct HistoryView: View {
     @State private var provider: ProviderID = .claude
     @State private var range: Int = 30
 
-    private var filtered: [DailyUsage] {
-        guard model.activeProviders.contains(provider) else { return [] }
+    /// Datos ya filtrados y agregados para la pasada de render actual.
+    ///
+    /// Antes `filtered` era una propiedad calculada a la que se accedía seis o
+    /// siete veces por render, y cada acceso reordenaba el historial entero.
+    private var summary: HistorySummary {
+        guard model.activeProviders.contains(provider) else { return .empty }
         let cutoff = DateUtils.daysAgo(range)
-        return (model.history[provider] ?? [])
+        let entries = (model.history[provider] ?? [])
             .filter { $0.date >= cutoff }
             .sorted { $0.date < $1.date }
-    }
 
-    private var totalTokens: Int {
-        filtered.reduce(0) { $0 + $1.tokens.total }
-    }
+        var totalTokens = 0
+        var totalCost = 0.0
+        var aggregate: [String: ModelUsage] = [:]
+        for day in entries {
+            totalTokens += day.tokens.total
+            totalCost += day.costUSD ?? 0
+            for usage in day.models {
+                var current = aggregate[usage.model] ?? ModelUsage(
+                    model: usage.model,
+                    tokens: .zero,
+                    costUSD: 0
+                )
+                current.tokens += usage.tokens
+                current.costUSD = (current.costUSD ?? 0) + (usage.costUSD ?? 0)
+                aggregate[usage.model] = current
+            }
+        }
 
-    private var totalCost: Double {
-        filtered.compactMap(\.costUSD).reduce(0, +)
+        let models = aggregate.values.sorted {
+            if ($0.costUSD ?? 0) != ($1.costUSD ?? 0) {
+                return ($0.costUSD ?? 0) > ($1.costUSD ?? 0)
+            }
+            return $0.tokens.total > $1.tokens.total
+        }
+
+        return HistorySummary(
+            entries: entries,
+            totalTokens: totalTokens,
+            totalCost: totalCost,
+            models: models
+        )
     }
 
     var body: some View {
+        let summary = summary
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .firstTextBaseline) {
@@ -338,7 +368,7 @@ struct HistoryView: View {
                     .frame(width: 220)
                 }
 
-                if filtered.isEmpty {
+                if summary.entries.isEmpty {
                     EmptyState(
                         symbol: "chart.bar.xaxis",
                         title: "Sin historial todavía",
@@ -350,16 +380,17 @@ struct HistoryView: View {
                     )
                     .card()
                 } else {
-                    chartCard
-                    modelBreakdownCard
+                    chartCard(summary)
+                    modelBreakdownCard(summary)
                 }
             }
             .padding(24)
         }
     }
 
-    private var chartCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func chartCard(_ summary: HistorySummary) -> some View {
+        let filtered = summary.entries
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(provider == .copilot ? "Premium requests acumuladas" : "Tokens por día")
@@ -370,7 +401,7 @@ struct HistoryView: View {
                 }
                 Spacer()
                 if provider != .copilot {
-                    Text("\(Format.tokens(totalTokens)) tokens · \(Format.money(totalCost, settings: model.settings))")
+                    Text("\(Format.tokens(summary.totalTokens)) tokens · \(Format.money(summary.totalCost, settings: model.settings))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -462,15 +493,15 @@ struct HistoryView: View {
         .card(padding: 18)
     }
 
-    private var modelBreakdownCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func modelBreakdownCard(_ summary: HistorySummary) -> some View {
+        let aggregates = summary.models
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Modelos")
                 .font(.headline)
             Text("Tokens y coste estimado en el rango seleccionado")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            let aggregates = aggregateModels()
             if aggregates.isEmpty {
                 Text(provider == .copilot
                      ? "Copilot no expone desglose por modelo en la API de cuota."
@@ -510,24 +541,21 @@ struct HistoryView: View {
         }
         .card(padding: 18)
     }
+}
 
-    private func aggregateModels() -> [ModelUsage] {
-        var aggregate: [String: ModelUsage] = [:]
-        for day in filtered {
-            for usage in day.models {
-                var current = aggregate[usage.model] ?? ModelUsage(model: usage.model, tokens: .zero, costUSD: 0)
-                current.tokens += usage.tokens
-                current.costUSD = (current.costUSD ?? 0) + (usage.costUSD ?? 0)
-                aggregate[usage.model] = current
-            }
-        }
-        return aggregate.values.sorted {
-            if ($0.costUSD ?? 0) != ($1.costUSD ?? 0) {
-                return ($0.costUSD ?? 0) > ($1.costUSD ?? 0)
-            }
-            return $0.tokens.total > $1.tokens.total
-        }
-    }
+/// Datos del historial ya filtrados y agregados para una pasada de render.
+struct HistorySummary {
+    let entries: [DailyUsage]
+    let totalTokens: Int
+    let totalCost: Double
+    let models: [ModelUsage]
+
+    static let empty = HistorySummary(
+        entries: [],
+        totalTokens: 0,
+        totalCost: 0,
+        models: []
+    )
 }
 
 // MARK: - Subscriptions

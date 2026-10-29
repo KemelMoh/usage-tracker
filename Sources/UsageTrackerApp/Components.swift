@@ -28,9 +28,12 @@ struct ProviderIcon: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    /// SwiftUI ya invalida la vista cuando cambia el esquema de color, así que
+    /// basta con el entorno. Antes se consultaba además `NSApp.effectiveAppearance`
+    /// en cada render, que no es observable y obliga a resolver el tema del
+    /// sistema una y otra vez.
     private var isDark: Bool {
-        if colorScheme == .dark { return true }
-        return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        colorScheme == .dark
     }
 
     var body: some View {
@@ -64,6 +67,27 @@ struct ProviderIcon: View {
 }
 
 private enum ProviderIconAsset {
+    /// Los PNG se leen una sola vez y se reutilizan. Antes se releían del disco
+    /// y se creaba un `NSImage` nuevo en cada render de cada icono.
+    private static let cache: [String: NSImage] = {
+        var images: [String: NSImage] = [:]
+        let names = [
+            "opencode", "copilot", "copilot-dark", "claude",
+            "opencode-menu", "copilot-menu", "claude-menu"
+        ]
+        for name in names {
+            guard let url = Bundle.main.url(
+                forResource: name,
+                withExtension: "png",
+                subdirectory: "ProviderIcons"
+            ), let image = NSImage(contentsOf: url) else {
+                continue
+            }
+            images[name] = image
+        }
+        return images
+    }()
+
     static func image(for provider: ProviderID, isDark: Bool) -> NSImage? {
         let name: String
         switch provider {
@@ -75,7 +99,7 @@ private enum ProviderIconAsset {
             name = "claude"
         }
 
-        return load(named: name)
+        return cache[name]
     }
 
     static func menuBarImage(for provider: ProviderID, size: CGFloat) -> NSImage? {
@@ -89,27 +113,37 @@ private enum ProviderIconAsset {
             name = "claude-menu"
         }
 
-        guard let image = load(named: name) else { return nil }
-        // El tamaño lógico debe ser el del menú, no los 256 px del PNG.
+        // El tamaño lógico debe ser el del menú, no los 256 px del PNG. Se
+        // cachea ya adjusted para no crear una copia en cada dibujado.
+        let key = "\(name)@\(Int(size))"
+        if let cached = menuBarCache[key] { return cached }
+
+        guard let source = cache[name] else { return nil }
+        let image = source.copy() as? NSImage ?? source
         image.size = NSSize(width: size, height: size)
+        menuBarCache[key] = image
         return image
     }
 
-    private static func load(named name: String) -> NSImage? {
-        guard let url = Bundle.main.url(
-            forResource: name,
-            withExtension: "png",
-            subdirectory: "ProviderIcons"
-        ) else {
-            return nil
-        }
-        return NSImage(contentsOf: url)
-    }
+    /// Imágenes de la barra de menús ya ajustadas a su tamaño lógico.
+    private static var menuBarCache: [String: NSImage] = [:]
 }
 
 enum MenuBarProviderImage {
+    /// Caché de la última imagen generada. Redibujarla cuesta un `NSImage`
+    /// nuevo y un dibujado completo, y la etiqueta de la barra de menús se
+    /// recalcula con cualquier cambio de estado.
+    private static var cachedImage: NSImage?
+    private static var cachedKey: String?
+
     static func make(providers: [ProviderID], percentages: [ProviderID: String]) -> NSImage? {
         guard !providers.isEmpty else { return nil }
+
+        let values = providers.map { percentages[$0] ?? "—" }
+        let key = providers.map(\.rawValue).joined(separator: "|") + "#" + values.joined(separator: "|")
+        if key == cachedKey, let cachedImage {
+            return cachedImage
+        }
 
         let iconSize: CGFloat = 16
         let iconTextGap: CGFloat = 2
@@ -120,7 +154,6 @@ enum MenuBarProviderImage {
             .font: font,
             .foregroundColor: NSColor.white
         ]
-        let values = providers.map { percentages[$0] ?? "—" }
         let textWidths = values.map { ($0 as NSString).size(withAttributes: attributes).width }
 
         var width: CGFloat = 2
@@ -165,6 +198,8 @@ enum MenuBarProviderImage {
             return true
         }
         image.isTemplate = true
+        cachedKey = key
+        cachedImage = image
         return image
     }
 }
@@ -193,7 +228,7 @@ struct ProgressBar: View {
 struct QuotaRow: View {
     let window: QuotaWindow
     let provider: ProviderID
-    let now: Date
+    @ObservedObject var clock: Clock
     var compact: Bool = false
 
     var body: some View {
@@ -235,7 +270,7 @@ struct QuotaRow: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    Text("Reinicio en \(Format.countdown(resetsAt, now: now))")
+                    Text("Reinicio en \(Format.countdown(resetsAt, now: clock.now))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -243,7 +278,7 @@ struct QuotaRow: View {
                 }
                 Spacer()
                 if !window.isUnlimited,
-                   let forecast = ForecastCalculator.forecast(window: window, now: now) {
+                   let forecast = ForecastCalculator.forecast(window: window, now: clock.now) {
                     Text("Previsión \(Format.percent(forecast.projectedPercent))")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(forecast.willExceed ? .red : .secondary)
@@ -260,7 +295,7 @@ struct ProviderCard: View {
     let subscription: Subscription
     let settings: AppSettings
     let isStale: Bool
-    let now: Date
+    @ObservedObject var clock: Clock
     var compact: Bool = false
     var showModels: Bool = true
 
@@ -324,7 +359,7 @@ struct ProviderCard: View {
             } else {
                 VStack(spacing: compact ? 8 : 12) {
                     ForEach(snapshot.windows) { window in
-                        QuotaRow(window: window, provider: snapshot.provider, now: now, compact: compact)
+                        QuotaRow(window: window, provider: snapshot.provider, clock: clock, compact: compact)
                     }
                 }
             }
@@ -493,7 +528,7 @@ struct UpdateBanner: View {
 
 struct AlertRow: View {
     let alert: AppAlert
-    let now: Date
+    @ObservedObject var clock: Clock
     var onDismiss: (() -> Void)? = nil
 
     var body: some View {
@@ -508,7 +543,7 @@ struct AlertRow: View {
                 Text(alert.message)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(Format.relative(alert.date, now: now))
+                Text(Format.relative(alert.date, now: clock.now))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

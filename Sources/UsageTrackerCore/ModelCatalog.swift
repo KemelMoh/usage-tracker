@@ -247,6 +247,73 @@ public enum ModelsDevClient {
 // MARK: - Combinación con el listado en vivo
 
 public enum ModelCatalogService {
+    /// Clave de ordenación precalculada para el catálogo.
+    private struct SortKey {
+        /// Nombre normalizado: minúsculas y sin acentos, para que la
+        /// comparación sea determinista y barata.
+        let normalized: String
+        let modelID: String
+        let model: CatalogModel
+    }
+
+    /// Normaliza un nombre para ordenarlo sin depender de la colación ICU.
+    public static func normalizedName(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                     locale: nil)
+    }
+
+    /// Comparación en orden natural: los bloques de dígitos se comparan por
+    /// valor, no lexicográficamente, para que "Model 2" vaya antes que
+    /// "Model 10". Es el comportamiento de `localizedStandardCompare`, pero
+    /// sin el coste de la colación ICU.
+    ///
+    /// Se comparan los nombres normalizados carácter a carácter. Cuando ambos
+    /// son dígitos, se lee el número completo de cada lado y se comparan como
+    /// enteros.
+    public static func naturalLessThan(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        var i = 0
+        var j = 0
+
+        while i < left.count, j < right.count {
+            let a = left[i]
+            let b = right[j]
+
+            if a.isNumber, b.isNumber {
+                var endA = i
+                var numberA = 0
+                while endA < left.count, let digit = left[endA].wholeNumberValue {
+                    numberA = numberA * 10 + digit
+                    endA += 1
+                }
+                var endB = j
+                var numberB = 0
+                while endB < right.count, let digit = right[endB].wholeNumberValue {
+                    numberB = numberB * 10 + digit
+                    endB += 1
+                }
+
+                if numberA != numberB { return numberA < numberB }
+
+                // A igualdad numérica se compara el número de dígitos, para
+                // que "007" quede antes que "7".
+                if endA - i != endB - j { return endA - i < endB - j }
+
+                i = endA
+                j = endB
+                continue
+            }
+
+            if a != b { return a < b }
+            i += 1
+            j += 1
+        }
+
+        if left.count - i != right.count - j { return left.count - i < right.count - j }
+        return false
+    }
+
     public static func fetch() async throws -> ModelCatalog {
         async let devTask = ModelsDevClient.fetchModels()
         async let liveTask = OpenCodeModelsClient().fetchIDs()
@@ -309,17 +376,40 @@ public enum ModelCatalogService {
     }
 
     public static func sorted(_ models: [CatalogModel]) -> [CatalogModel] {
-        let order = Dictionary(
-            uniqueKeysWithValues: ProviderID.allCases.enumerated().map { ($1, $0) }
-        )
-        return models.sorted { lhs, rhs in
-            let left = order[lhs.provider] ?? 0
-            let right = order[rhs.provider] ?? 0
-            if left != right { return left < right }
-            let comparison = lhs.name.localizedStandardCompare(rhs.name)
-            if comparison != .orderedSame { return comparison == .orderedAscending }
-            return lhs.modelID < rhs.modelID
+        // `localizedStandardCompare` prepara una colación ICU en cada llamada y el
+        // ordenador la invoca O(n log n) veces. Se agrupa primero por
+        // proveedor y, dentro de cada grupo, se ordenan las claves de
+        // comparación precalculadas con `compareOptions`, de modo que la
+        // colación se resuelve una vez por entrada y no una por comparación.
+        let byProvider = Dictionary(grouping: models, by: \.provider)
+
+        var result: [CatalogModel] = []
+        result.reserveCapacity(models.count)
+
+        for provider in ProviderID.allCases {
+            guard let entries = byProvider[provider] else { continue }
+            let keyed: [SortKey] = entries.map {
+                SortKey(
+                    normalized: normalizedName($0.name),
+                    modelID: $0.modelID,
+                    model: $0
+                )
+            }
+            result.append(contentsOf: keyed.sorted { lhs, rhs in
+                if lhs.normalized != rhs.normalized {
+                    return naturalLessThan(lhs.normalized, rhs.normalized)
+                }
+                return lhs.modelID < rhs.modelID
+            }.map(\.model))
         }
+
+        // Proveedores desconocidos al final, conservando su orden de entrada.
+        let known = Set(ProviderID.allCases)
+        for (provider, entries) in byProvider where !known.contains(provider) {
+            result.append(contentsOf: entries)
+        }
+
+        return result
     }
 
     static func displayName(for modelID: String) -> String {

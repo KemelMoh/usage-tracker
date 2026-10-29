@@ -122,6 +122,26 @@ if let day = DateUtils.parseDay("2026-10-27") {
 } else {
     check(false, "parseDay debería aceptar 2026-10-27")
 }
+
+// La vía rápida de parseo debe coincidir exactamente con `DateFormatter`.
+let referenceFormatter = DateFormatter()
+referenceFormatter.locale = Locale(identifier: "en_US_POSIX")
+referenceFormatter.timeZone = TimeZone.current
+referenceFormatter.dateFormat = "yyyy-MM-dd"
+for sample in ["1970-01-01", "1999-12-31", "2024-02-29", "2026-06-15", "2038-01-19"] {
+    let expected = referenceFormatter.date(from: sample)
+    let actual = DateUtils.fastParseDay(sample)
+    if let expected, let actual {
+        checkEqual(actual.timeIntervalSince1970, expected.timeIntervalSince1970,
+                   "parseo rápido coincide con DateFormatter para \(sample)")
+    } else {
+        check(false, "parseo rápido debería aceptar \(sample)")
+    }
+}
+check(DateUtils.fastParseDay("no-es-fecha") == nil, "el parseo rápido rechaza formatos inválidos")
+check(DateUtils.fastParseDay("2026-13-01") == nil, "el parseo rápido rechaza meses inválidos")
+check(DateUtils.fastParseDay("2026-01-32") == nil, "el parseo rápido rechaza días inválidos")
+
 let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
 checkEqual(DateUtils.countdown(to: fixedNow.addingTimeInterval(3_661), now: fixedNow), "1h 1m", "cuenta atrás con horas")
 checkEqual(DateUtils.countdown(to: fixedNow.addingTimeInterval(90), now: fixedNow), "1m", "cuenta atrás con minutos")
@@ -356,6 +376,42 @@ let sortedMerge = HistoryMerger.merge(
 )
 checkEqual(sortedMerge.map(\.date), sortedMerge.map(\.date).sorted(), "historial ordenado")
 
+// MARK: - Ordenación del catálogo
+
+section("Ordenación del catálogo")
+
+// El orden natural debe coincidir con `localizedStandardCompare` para los
+// nombres de modelo, que es lo que se usaba antes.
+let sortSamples = [
+    "Model 10", "Model 2", "Model 1",
+    "GPT-4o", "gpt-4o mini", "Claude Opus",
+    "Llama 3.1 70B", "Llama 3.10 70B"
+]
+let referenceOrder = sortSamples.sorted {
+    $0.localizedStandardCompare($1) == .orderedAscending
+}
+let naturalOrder = sortSamples.sorted {
+    ModelCatalogService.naturalLessThan(
+        ModelCatalogService.normalizedName($0),
+        ModelCatalogService.normalizedName($1)
+    )
+}
+checkEqual(naturalOrder, referenceOrder, "el orden natural coincide con la colación del sistema")
+
+// El catálogo se agrupa por proveedor y mantiene el orden dentro de cada uno.
+let mixedCatalog = [
+    CatalogModel(modelID: "b-2", name: "Model 2", provider: .claude),
+    CatalogModel(modelID: "b-10", name: "Model 10", provider: .claude),
+    CatalogModel(modelID: "a-1", name: "Alpha", provider: .copilot),
+    CatalogModel(modelID: "c-1", name: "Zeta", provider: .opencodeGo)
+]
+let sortedCatalog = ModelCatalogService.sorted(mixedCatalog)
+checkEqual(
+    sortedCatalog.map(\.modelID),
+    ["a-1", "b-2", "b-10", "c-1"],
+    "el catálogo se ordena por proveedor y por nombre"
+)
+
 // MARK: - Precios
 
 section("Precios")
@@ -548,6 +604,29 @@ do {
         "modelo sin tarifa usa el respaldo"
     )
 
+    // El resolutor con memoria debe dar el mismo precio que la búsqueda directa.
+    let resolver = PricingCatalog.Resolver(catalog: openCodePrices)
+    for sample in ["deepseek-v4.1-flash", "brand-new-model", "claude-opus-5-5", "GPT-4o"] {
+        let direct = PricingCatalog.price(for: sample, catalog: openCodePrices)
+        let cached = resolver.price(for: sample)
+        checkClose(cached.input, direct.input, "el resolutor coincide en entrada para \(sample)")
+        checkClose(cached.output, direct.output, "el resolutor coincide en salida para \(sample)")
+        checkClose(cached.cacheRead, direct.cacheRead, "el resolutor coincide en caché para \(sample)")
+        checkClose(cached.cacheWrite, direct.cacheWrite, "el resolutor coincide en escritura para \(sample)")
+    }
+    checkClose(
+        resolver.cost(
+            model: "deepseek-v4.1-flash",
+            tokens: TokenBreakdown(input: 1_000_000, output: 1_000_000)
+        ),
+        PricingCatalog.cost(
+            model: "deepseek-v4.1-flash",
+            tokens: TokenBreakdown(input: 1_000_000, output: 1_000_000),
+            catalog: openCodePrices
+        ),
+        "el coste del resolutor coincide con el cálculo directo"
+    )
+
     let claudePrices = mergedCatalog.priceTable(for: .claude)
     checkClose(
         PricingCatalog.cost(
@@ -708,6 +787,37 @@ check(
     claudeRecommendations.contains { $0.model.provider == .claude },
     "cada proveedor calcula sus propias recomendaciones"
 )
+
+// El índice debe coincidir con el cálculo por proveedor original.
+let index = RecommendationIndex.build(
+    from: recommendationModels + [claudeCandidate],
+    now: recommendationNow
+)
+checkEqual(
+    index.byProvider[.opencodeGo]?.map(\.model.modelID),
+    recommendations.map(\.model.modelID),
+    "el índice reproduce el orden de las recomendaciones por proveedor"
+)
+checkEqual(
+    index.byProvider[.claude]?.map(\.model.modelID),
+    claudeRecommendations.map(\.model.modelID),
+    "el índice reproduce las recomendaciones de Claude"
+)
+checkEqual(
+    index.badgeByModelID["opencode-go/ultra"],
+    WorkloadBadge.ultra,
+    "el índice asocia el badge correcto a cada modelo"
+)
+checkEqual(index.orderByModelID["opencode-go/ultra"], 0, "el índice ordena por posición")
+check(
+    index.recommendedModelIDs.contains("claude/claude-candidate"),
+    "el índice recoge los modelos recomendados de todos los proveedores"
+)
+check(
+    index.providersBelowMinimum.contains(.copilot),
+    "el índice detecta los proveedores sin suficientes modelos"
+)
+check(!index.providersBelowMinimum.contains(.opencodeGo), "un proveedor con 3 modelos no se marca")
 
 // MARK: - Actualizaciones
 

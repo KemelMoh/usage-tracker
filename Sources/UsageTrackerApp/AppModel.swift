@@ -38,19 +38,23 @@ final class AppModel: ObservableObject {
     @Published private(set) var credentialStatus: [ProviderID: CredentialStatus] = [:]
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastRefresh: Date?
-    @Published private(set) var clock = Date()
     @Published private(set) var modelCatalog: ModelCatalog?
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogError: String?
     @Published private(set) var catalogLastAttempt: Date?
+    /// Recomendaciones ya calculadas para el catálogo actual. Se rehacen solo
+    /// cuando cambia el catálogo, no en cada pasada de render de la interfaz.
+    @Published private(set) var recommendationIndex: RecommendationIndex = .empty
     @Published var lastError: String?
     @Published var dashboardTab: DashboardTab = .overview
     @Published var modelRecommendationsEnabled: Bool = false {
         didSet {
+            guard modelRecommendationsEnabled != oldValue else { return }
             UserDefaults.standard.set(
                 modelRecommendationsEnabled,
                 forKey: Self.modelRecommendationsKey
             )
+            rebuildRecommendationIndex()
         }
     }
     @Published private(set) var availableUpdate: AppUpdate?
@@ -62,9 +66,12 @@ final class AppModel: ObservableObject {
     private static let modelRecommendationsKey = "modelRecommendationsEnabled"
     private static let lastUpdateCheckKey = "lastUpdateCheck"
 
+    /// Reloj de la interfaz. Vive fuera de `AppModel` para que sus tics no
+    /// invaliden las vistas que no muestran tiempos.
+    let clock = Clock()
+
     private var alertKeys: [String: Date] = [:]
     private var timer: Timer?
-    private var clockTimer: Timer?
     private var saveWorkItem: DispatchWorkItem?
 
     init() {
@@ -85,11 +92,13 @@ final class AppModel: ObservableObject {
                 models: ModelCatalogService.sorted(catalog.models)
             )
         }
+        self.recommendationIndex = modelRecommendationsEnabled
+            ? RecommendationIndex.build(from: catalogModels, now: clock.now)
+            : .empty
 
         self.settings.launchAtLogin = SMAppService.mainApp.status == .enabled
 
         configureTimer()
-        configureClock()
 
         Task { await refresh() }
         Task { await checkForUpdatesIfNeeded() }
@@ -101,7 +110,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Public computed state
 
-    var now: Date { clock }
+    var now: Date { clock.now }
 
     var activeSubscriptions: [Subscription] {
         settings.activeSubscriptions
@@ -145,17 +154,17 @@ final class AppModel: ObservableObject {
 
     var lastRefreshText: String {
         guard let lastRefresh else { return "Sin actualizar" }
-        return "Actualizado \(Format.relative(lastRefresh, now: clock))"
+        return "Actualizado \(Format.relative(lastRefresh, now: clock.now))"
     }
 
     var catalogUpdatedText: String {
         guard let fetchedAt = modelCatalog?.fetchedAt else { return "Modelos sin cargar" }
-        return "Modelos \(Format.relative(fetchedAt, now: clock))"
+        return "Modelos \(Format.relative(fetchedAt, now: clock.now))"
     }
 
     var catalogIsStale: Bool {
         guard let fetchedAt = modelCatalog?.fetchedAt else { return true }
-        return clock.timeIntervalSince(fetchedAt) > 24 * 3_600
+        return clock.now.timeIntervalSince(fetchedAt) > 24 * 3_600
     }
 
     private var catalogNeedsMetadata: Bool {
@@ -165,6 +174,17 @@ final class AppModel: ObservableObject {
 
     var catalogModels: [CatalogModel] {
         modelCatalog?.models ?? []
+    }
+
+    /// Recalcula las recomendaciones del catálogo. Solo hace falta cuando
+    /// cambia el catálogo o se activa/desactiva la función.
+    func rebuildRecommendationIndex() {
+        guard modelRecommendationsEnabled else {
+            if recommendationIndex.byProvider.isEmpty { return }
+            recommendationIndex = .empty
+            return
+        }
+        recommendationIndex = RecommendationIndex.build(from: catalogModels, now: clock.now)
     }
 
     func subscription(for provider: ProviderID) -> Subscription {
@@ -206,11 +226,35 @@ final class AppModel: ObservableObject {
             .reduce(0, +)
     }
 
+    /// Valor de uso por proveedor en una sola pasada sobre el historial.
+    ///
+    /// `usageValue(for:)` filtra el historial entero por cada proveedor, y
+    /// llamarlo para los tres providers repetía ese trabajo tres veces por
+    /// cada render del resumen.
+    var usageValues: [ProviderID: Double] {
+        let cutoff = DateUtils.monthsAgo(1)
+        var values: [ProviderID: Double] = [:]
+
+        // Copilot no depende del historial: se calcula siempre, aunque todavía
+        // no haya ninguna entrada guardada.
+        values[.copilot] = (snapshots[.copilot]?.premiumUsed ?? 0)
+            * PricingCatalog.copilotOveragePerRequestUSD
+
+        for (provider, entries) in history where provider != .copilot {
+            var total = 0.0
+            for entry in entries where entry.date >= cutoff {
+                total += entry.costUSD ?? 0
+            }
+            values[provider] = total
+        }
+        return values
+    }
+
     var totalUsageValue: Double {
-        ProviderID.allCases
+        let values = usageValues
+        return ProviderID.allCases
             .filter { subscription(for: $0).isActive }
-            .map { usageValue(for: $0) }
-            .reduce(0, +)
+            .reduce(0) { $0 + (values[$1] ?? 0) }
     }
 
     func alerts(for provider: ProviderID) -> [AppAlert] {
@@ -351,6 +395,7 @@ final class AppModel: ObservableObject {
             }
             modelCatalog = catalog
             catalogError = nil
+            rebuildRecommendationIndex()
             persist()
         } catch {
             catalogError = "No se pudo actualizar el catálogo de modelos: \(error.localizedDescription)"
@@ -425,9 +470,6 @@ final class AppModel: ObservableObject {
             var snapshot = result
             // Refleja el plan finalmente aplicado (manual o detectado).
             snapshot.planName = subscription(for: snapshot.provider).planName
-            if snapshot.status == .ok {
-                snapshot.models = topModels(for: snapshot.provider)
-            }
             snapshots[snapshot.provider] = snapshot
             if snapshot.status == .ok {
                 applyAutoRenewal(for: snapshot)
@@ -714,6 +756,7 @@ final class AppModel: ObservableObject {
         lastRefresh = nil
         credentialStatus = [:]
         modelCatalog = nil
+        recommendationIndex = .empty
         catalogError = nil
         catalogLastAttempt = nil
         lastError = nil
@@ -758,17 +801,6 @@ final class AppModel: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
-    }
-
-    private func configureClock() {
-        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                self.clock = Date()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        clockTimer = timer
     }
 
     private static func decodeSnapshots(_ raw: [String: ProviderSnapshot]) -> [ProviderID: ProviderSnapshot] {

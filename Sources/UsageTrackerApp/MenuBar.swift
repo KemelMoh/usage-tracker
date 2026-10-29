@@ -193,7 +193,7 @@ struct PopoverView: View {
                 }
 
                 if let latest = model.visibleAlerts.last {
-                    AlertRow(alert: latest, now: model.now) {
+                    AlertRow(alert: latest, clock: model.clock) {
                         model.dismissAlert(latest)
                     }
                 }
@@ -220,7 +220,7 @@ struct PopoverView: View {
                                 subscription: model.subscription(for: provider),
                                 settings: model.settings,
                                 isStale: model.isStale(snapshot),
-                                now: model.now,
+                                clock: model.clock,
                                 compact: true,
                                 showModels: false
                             )

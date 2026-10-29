@@ -47,6 +47,73 @@ public enum PricingCatalog {
         return defaultPrices.first(where: { $0.pattern == "default" })!
     }
 
+    /// Resolutor de precios con memoria para el modelo.
+    ///
+    /// `price(for:catalog:)` concatena arrays y filtra en cada llamada. Al
+    /// recorrer el historial se llama miles de veces con los mismos nombres de
+    /// modelo, así que aquí se resuelve una vez por modelo y se reutiliza.
+    public final class Resolver: @unchecked Sendable {
+        private let catalog: [ModelPrice]
+        private let defaultPrice: ModelPrice
+        private var cache: [String: ModelPrice] = [:]
+        private let lock = NSLock()
+
+        public init(catalog: [ModelPrice]? = nil) {
+            let resolved = catalog ?? []
+            // Los patrones se guardan ya en minúsculas y sin el patrón
+            // "default", que solo actúa como respaldo.
+            self.catalog = resolved
+                .filter { $0.pattern.lowercased() != "default" }
+                .map {
+                    ModelPrice(
+                        pattern: $0.pattern.lowercased(),
+                        input: $0.input,
+                        output: $0.output,
+                        cacheRead: $0.cacheRead,
+                        cacheWrite: $0.cacheWrite
+                    )
+                }
+            self.defaultPrice = PricingCatalog.defaultPrices
+                .first(where: { $0.pattern == "default" })!
+        }
+
+        /// Precio del modelo. El resultado se memoriza por nombre.
+        public func price(for model: String) -> ModelPrice {
+            let key = model.lowercased()
+            lock.lock()
+            if let cached = cache[key] {
+                lock.unlock()
+                return cached
+            }
+            lock.unlock()
+
+            var best: ModelPrice?
+            var bestLength = 0
+            for candidate in catalog where key.contains(candidate.pattern) {
+                if candidate.pattern.count > bestLength {
+                    best = candidate
+                    bestLength = candidate.pattern.count
+                }
+            }
+
+            let resolved = best ?? defaultPrice
+            lock.lock()
+            cache[key] = resolved
+            lock.unlock()
+            return resolved
+        }
+
+        public func cost(model: String, tokens: TokenBreakdown) -> Double {
+            let price = price(for: model)
+            let inputCost = Double(tokens.input) * price.input / 1_000_000
+            let outputCost = Double(tokens.output) * price.output / 1_000_000
+            let cacheReadCost = Double(tokens.cacheRead) * price.cacheRead / 1_000_000
+            let cacheWriteCost = Double(tokens.cacheWrite) * price.cacheWrite / 1_000_000
+            let unknownCost = Double(tokens.unknown) * price.input / 1_000_000
+            return inputCost + outputCost + cacheReadCost + cacheWriteCost + unknownCost
+        }
+    }
+
     public static func cost(
         model: String,
         tokens: TokenBreakdown,

@@ -229,7 +229,7 @@ struct SettingsView: View {
         guard let last = model.lastUpdateCheck else {
             return "Aún no se ha comprobado."
         }
-        return "Última comprobación: \(Format.relative(last, now: model.now))"
+        return "Última comprobación: \(Format.relative(last, now: model.clock.now))"
     }
 
     private var about: some View {

@@ -54,6 +54,70 @@ public struct ModelRecommendation: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Índice de recomendaciones ya calculado para un catálogo concreto.
+///
+/// Recomputar las recomendaciones recorre y ordena el catálogo entero por
+/// proveedor. La interfaz lo usa muchas veces por cada pasada de render, así
+/// que se calcula una sola vez cuando cambia el catálogo y se reutiliza.
+public struct RecommendationIndex: Sendable {
+    /// Recomendaciones agrupadas por proveedor.
+    public let byProvider: [ProviderID: [ModelRecommendation]]
+    /// Badge de cada modelo recomendado, indexado por id de modelo.
+    public let badgeByModelID: [String: WorkloadBadge]
+    /// Posición de cada modelo recomendado dentro de su proveedor.
+    public let orderByModelID: [String: Int]
+    /// Ids de todos los modelos recomendados.
+    public let recommendedModelIDs: Set<String>
+    /// Proveedores con menos de tres modelos válidos.
+    public let providersBelowMinimum: [ProviderID]
+
+    public static let empty = RecommendationIndex(byProvider: [:])
+
+    public init(byProvider: [ProviderID: [ModelRecommendation]]) {
+        self.byProvider = byProvider
+
+        var badgeByModelID: [String: WorkloadBadge] = [:]
+        var orderByModelID: [String: Int] = [:]
+        for recommendations in byProvider.values {
+            for (index, recommendation) in recommendations.enumerated() {
+                badgeByModelID[recommendation.model.id] = recommendation.badge
+                orderByModelID[recommendation.model.id] = index
+            }
+        }
+        self.badgeByModelID = badgeByModelID
+        self.orderByModelID = orderByModelID
+        self.recommendedModelIDs = Set(badgeByModelID.keys)
+        self.providersBelowMinimum = ProviderID.allCases.filter {
+            (byProvider[$0]?.count ?? 0) < 3
+        }
+    }
+
+    /// Calcula el índice para todos los proveedores de un catálogo.
+    public static func build(
+        from models: [CatalogModel],
+        now: Date = Date()
+    ) -> RecommendationIndex {
+        // El catálogo se agrupa una sola vez por proveedor. Antes cada
+        // proveedor recorría la lista entera, así que el trabajo crecía con el
+        // número de proveedores.
+        let byProvider = Dictionary(grouping: models, by: \.provider)
+
+        var recommendations: [ProviderID: [ModelRecommendation]] = [:]
+        for provider in ProviderID.allCases {
+            guard let providerModels = byProvider[provider], !providerModels.isEmpty else {
+                recommendations[provider] = []
+                continue
+            }
+            recommendations[provider] = ModelRecommender.recommendations(
+                for: provider,
+                providerModels: providerModels,
+                now: now
+            )
+        }
+        return RecommendationIndex(byProvider: recommendations)
+    }
+}
+
 public enum ModelRecommender {
     /// Devuelve hasta tres modelos distintos de un proveedor, uno por badge.
     /// Solo entran modelos con precio conocido, no gratuitos, no deprecated y
@@ -63,11 +127,24 @@ public enum ModelRecommender {
         from models: [CatalogModel],
         now: Date = Date()
     ) -> [ModelRecommendation] {
+        recommendations(
+            for: provider,
+            providerModels: models.filter { $0.provider == provider },
+            now: now
+        )
+    }
+
+    /// Variante que recibe ya los modelos de un único proveedor, para no
+    /// recorrer el catálogo entero una vez por proveedor.
+    public static func recommendations(
+        for provider: ProviderID,
+        providerModels: [CatalogModel],
+        now: Date
+    ) -> [ModelRecommendation] {
         let cutoff = Calendar.current.date(byAdding: .month, value: -6, to: now)
             ?? now.addingTimeInterval(-183 * 86_400)
 
-        let eligible = models.filter { model in
-            guard model.provider == provider else { return false }
+        let eligible = providerModels.filter { model in
             guard !model.isFree, !model.isDeprecated else { return false }
             guard let input = model.inputPerMillion, input > 0,
                   let output = model.outputPerMillion, output > 0 else {

@@ -12,93 +12,83 @@ struct ModelsCatalogView: View {
     @State private var expandedModel: String?
     @State private var showRecommendedOnly = true
 
-    private var recommendationsByProvider: [ProviderID: [ModelRecommendation]] {
-        guard model.modelRecommendationsEnabled else { return [:] }
-        var result: [ProviderID: [ModelRecommendation]] = [:]
-        for provider in ProviderID.allCases {
-            result[provider] = ModelRecommender.recommendations(
-                for: provider,
-                from: model.catalogModels,
-                now: model.now
-            )
-        }
-        return result
+    /// Las recomendaciones vienen ya calculadas desde `AppModel`: recorrer y
+    /// ordenar el catálogo entero por cada pasada de render era el mayor coste
+    /// de esta vista.
+    private var recommendationIndex: RecommendationIndex {
+        model.recommendationIndex
     }
 
     private var recommendationByModelID: [String: WorkloadBadge] {
-        var result: [String: WorkloadBadge] = [:]
-        for recommendations in recommendationsByProvider.values {
-            for recommendation in recommendations {
-                result[recommendation.model.id] = recommendation.badge
-            }
-        }
-        return result
-    }
-
-    private var recommendationOrder: [String: Int] {
-        var result: [String: Int] = [:]
-        for recommendations in recommendationsByProvider.values {
-            for (index, recommendation) in recommendations.enumerated() {
-                result[recommendation.model.id] = index
-            }
-        }
-        return result
+        recommendationIndex.badgeByModelID
     }
 
     private var providersWithoutRecommendations: [ProviderID] {
-        ProviderID.allCases.filter {
-            (recommendationsByProvider[$0]?.count ?? 0) < 3
-        }
+        recommendationIndex.providersBelowMinimum
     }
 
-    private var filteredModels: [CatalogModel] {
+    /// Filtra y agrupa el catálogo en una sola pasada.
+    ///
+    /// Antes esto eran tres propiedades calculadas independientes: cada una
+    /// filtraba y ordenaba el catálogo entero, y `groups` volvía a filtrarlo
+    /// una vez por proveedor. Ahora el resultado se calcula una vez por pasada
+    /// de render y se reutiliza en el contador y en la lista.
+    private func makeGroups() -> CatalogGroups {
         let search = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        var entries = model.catalogModels.filter { entry in
-            if let providerFilter, entry.provider != providerFilter { return false }
-            guard !search.isEmpty else { return true }
-            return entry.name.lowercased().contains(search)
-                || entry.modelID.lowercased().contains(search)
-        }
+        let recommendedIDs = recommendationIndex.recommendedModelIDs
+        let order = recommendationIndex.orderByModelID
+        let onlyRecommended = model.modelRecommendationsEnabled && showRecommendedOnly
 
-        if model.modelRecommendationsEnabled && showRecommendedOnly {
-            let recommendedIDs = Set(recommendationByModelID.keys)
-            entries = entries.filter { recommendedIDs.contains($0.id) }
-            entries.sort {
-                (recommendationOrder[$0.id] ?? 99) < (recommendationOrder[$1.id] ?? 99)
+        var buckets: [ProviderID: [CatalogModel]] = [:]
+        var total = 0
+
+        for entry in model.catalogModels {
+            if let providerFilter, entry.provider != providerFilter { continue }
+            if !search.isEmpty {
+                let name = entry.name.lowercased()
+                let id = entry.modelID.lowercased()
+                guard name.contains(search) || id.contains(search) else { continue }
             }
+            if onlyRecommended && !recommendedIDs.contains(entry.id) { continue }
+            buckets[entry.provider, default: []].append(entry)
+            total += 1
         }
 
-        return entries
-    }
-
-    private var groups: [(provider: ProviderID, entries: [CatalogModel])] {
-        ProviderID.allCases.compactMap { provider in
-            let entries = filteredModels.filter { $0.provider == provider }
-            return entries.isEmpty ? nil : (provider, entries)
+        let groups = ProviderID.allCases.compactMap { provider -> (ProviderID, [CatalogModel])? in
+            guard var entries = buckets[provider], !entries.isEmpty else { return nil }
+            if onlyRecommended {
+                entries.sort { (order[$0.id] ?? 99) < (order[$1.id] ?? 99) }
+            }
+            return (provider, entries)
         }
+
+        return CatalogGroups(groups: groups, total: total)
     }
 
     var body: some View {
+        // El filtrado se resuelve una única vez por pasada de render y se
+        // comparte entre el contador, la lista y los avisos.
+        let result = makeGroups()
         if compact {
-            compactBody
+            compactBody(result)
         } else {
-            fullBody
+            fullBody(result)
         }
     }
 
-    private var compactBody: some View {
+    private func compactBody(_ result: CatalogGroups) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let error = model.catalogError, !model.catalogModels.isEmpty {
                 ErrorBanner(message: error, onDismiss: model.clearCatalogError)
             }
 
-            controls
+            controls(result.total)
 
             if model.catalogModels.isEmpty {
                 placeholder
             } else {
                 ScrollView {
-                    listContent
+                    listContent(result.groups)
                 }
             }
 
@@ -106,7 +96,7 @@ struct ModelsCatalogView: View {
         }
     }
 
-    private var fullBody: some View {
+    private func fullBody(_ result: CatalogGroups) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
@@ -127,7 +117,7 @@ struct ModelsCatalogView: View {
                     .disabled(model.isCatalogLoading)
                 }
 
-                controls
+                controls(result.total)
 
                 if let error = model.catalogError {
                     ErrorBanner(message: error, onDismiss: model.clearCatalogError)
@@ -136,7 +126,7 @@ struct ModelsCatalogView: View {
                 if model.catalogModels.isEmpty {
                     placeholder
                 } else {
-                    listContent
+                    listContent(result.groups)
                 }
 
                 footnote
@@ -145,7 +135,7 @@ struct ModelsCatalogView: View {
         }
     }
 
-    private var controls: some View {
+    private func controls(_ totalCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
                 searchField
@@ -162,7 +152,7 @@ struct ModelsCatalogView: View {
             }
 
             HStack(spacing: 6) {
-                Text("\(filteredModels.count) modelos")
+                Text("\(totalCount) modelos")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -251,7 +241,7 @@ struct ModelsCatalogView: View {
         )
     }
 
-    private var listContent: some View {
+    private func listContent(_ groups: [(provider: ProviderID, entries: [CatalogModel])]) -> some View {
         LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(groups, id: \.provider) { group in
                 providerSection(group.provider, entries: group.entries)
@@ -546,4 +536,11 @@ struct ModelsCatalogView: View {
             }
         }
     }
+}
+
+/// Resultado del filtrado del catálogo para una pasada de render.
+struct CatalogGroups {
+    let groups: [(provider: ProviderID, entries: [CatalogModel])]
+    /// Número total de modelos tras filtrar.
+    let total: Int
 }
