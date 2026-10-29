@@ -201,6 +201,7 @@ Sources/UsageTrackerCore/     Modelos, catálogo, credenciales, clientes HTTP, h
 Sources/UsageTrackerApp/      App SwiftUI, barra de menús, dashboard, modelos, ajustes, notificaciones
 Tools/SelfTest/               Comprobaciones del núcleo sin XCTest
 Resources/Info.plist          Metadatos del bundle (LSUIElement, macOS 13+)
+Resources/AppIcon.icns        Icono de la app (se incrusta al compilar)
 build.sh                      Compila, empaqueta y firma Usage Tracker.app
 ```
 

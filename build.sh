@@ -52,7 +52,13 @@ fi
 
 if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
     cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" 2>/dev/null || true
+    # `Add` falla si la clave ya existe, y `Set` falla si no existe: se
+    # prueba uno y luego el otro para no depender del punto de partida.
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" \
+        "$APP/Contents/Info.plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" \
+            "$APP/Contents/Info.plist" 2>/dev/null \
+            || true
 fi
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
