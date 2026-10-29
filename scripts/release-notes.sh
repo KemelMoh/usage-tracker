@@ -21,8 +21,10 @@ fi
 TAG="v$VERSION"
 
 # El tag anterior mas cercano, ordenados por version y no por fecha.
+# `grep -v` devuelve 1 cuando no deja nada, y con `pipefail` eso abortaria el
+# script, asi que se protege con `|| true`.
 PREVIOUS="$(git tag --list 'v*' --sort=-v:refname \
-    | grep -v "^${TAG}$" \
+    | { grep -v "^${TAG}$" || true; } \
     | head -1)"
 
 if [[ -z "$PREVIOUS" ]]; then

@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Las notas de la release se generan desde los commits, asi que hace
+          # falta el historial y los tags, no solo el commit del tag.
+          fetch-depth: 0
 
       - name: Show Swift version
         run: swift --version
