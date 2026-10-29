@@ -37,9 +37,12 @@ fi
 
 # Solo los mensajes de una linea, sin los commits de release ni los chores
 # internos que no aportan nada al usuario.
+#
+# Se descartan los commits cuyo mensaje empieza por un prefijo convencional
+# de chore, refactor, test, build o ci, ademas de los commits de release.
 COMMITS="$(git log $RANGE --no-merges --pretty=format:'%s' --reverse \
-    | grep -vE '^(Release [0-9]|Bump version|Merge )' \
-    | grep -vE '^(Add automatic release notes|Update release notes|Improve release notes)' \
+    | { grep -vE '^(Release [0-9]|Bump version|Merge )' || true; } \
+    | { grep -vE '^(chore|refactor|test|tests|build|ci|style|docs\(ci\))[:(]' || true; } \
     || true)"
 
 if [[ -z "$COMMITS" ]]; then
