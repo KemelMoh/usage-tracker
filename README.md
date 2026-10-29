@@ -52,6 +52,27 @@ El workflow de release genera `UsageTracker-x.y.z.dmg` y lo adjunta a la release
 
 El DMG no se guarda en el repositorio; se publica como asset de la release.
 
+## Instalar con Homebrew
+
+Hay un tap público separado:
+
+```bash
+brew tap KemelMoh/usage-tracker
+brew trust --cask KemelMoh/usage-tracker/usage-tracker
+brew install --cask --no-quarantine usage-tracker
+```
+
+`brew trust` es necesario en Homebrew 7 para taps de terceros. `--no-quarantine` evita el aviso de Gatekeeper de una app ad-hoc no notarizada.
+
+La release actual del cask es **arm64**. Actualiza con:
+
+```bash
+brew update
+brew upgrade --cask usage-tracker
+```
+
+El tap está en https://github.com/KemelMoh/homebrew-usage-tracker.
+
 ## Releases automáticas
 
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
