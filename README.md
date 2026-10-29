@@ -11,7 +11,7 @@ Sin backend, sin telemetría y sin sincronización en la nube: todo se queda en 
 - **Cuota actual** de cada proveedor con ventanas de uso (5 h, semanal, mensual…), porcentaje consumido y cuenta atrás hasta el reinicio.
 - **Catálogo de modelos** con contexto, precios de entrada/salida, caché y capacidad de razonamiento o herramientas. Se combina el listado en vivo de OpenCode Go con los precios de `models.dev`. Los modelos con tarifa 0 se marcan con **Gratis**.
 - **Recomendaciones de modelos (beta)**: con la feature flag activada, sugiere 3 modelos distintos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M. Solo considera modelos con precio publicado, no gratuitos, no deprecated y de los últimos 6 meses.
-- **Comprobación de actualizaciones**: consulta GitHub Releases una vez al día y permite descargar el DMG de la nueva versión desde la app. La instalación sigue siendo manual.
+- **Comprobación de actualizaciones**: consulta GitHub Releases una vez al día y permite descargar el DMG de la nueva versión desde la app. Al descargarlo, la app se cierra y abre el DMG; la instalación sigue siendo manual.
 - **Historial diario** de tokens y coste estimado, con gráficas (Swift Charts) de 7, 30 o 90 días y desglose por modelo.
 - **Previsión** de consumo al final de cada ventana según el ritmo actual.
 - **Alertas locales** al cruzar el 75 %, 90 % o 100 % y cuando la previsión indica que te pasarás. Puedes descartarlas con la cruz de cada alerta o limpiar todas desde el resumen.
@@ -101,6 +101,8 @@ La app consulta una vez al día la última release de GitHub y muestra un aviso 
 - ver la versión y las notas;
 - descargar el DMG;
 - abrir la página de la release.
+
+Al descargar el DMG, la app **se cierra** y lo abre automáticamente. El cierre es necesario porque el volumen del DMG se monta sobre /Applications y arrastrar la app nueva encima no funciona si la vieja sigue en ejecución. Para montarlo sin salir de la app, basta con cerrar y montar el DMG a mano.
 
 La app no reemplaza ni reinstala el bundle automáticamente: abre el DMG descargado y el usuario arrastra la app a Aplicaciones. Esto evita los problemas de firma y cuarentena de un actualizador completo sin Developer ID.
 
@@ -208,7 +210,7 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 swift run UsageTrackerSelfTest
 ```
 
-Ejecuta 153 comprobaciones sobre previsiones, alertas, fusión de historial, precios dinámicos, catálogo de modelos, recomendaciones, actualizaciones, detección de planes, formato y persistencia. No toca credenciales ni red.
+Ejecuta 201 comprobaciones sobre previsiones, alertas, fusión de historial, precios dinámicos, catálogo de modelos, recomendaciones, actualizaciones, detección de planes, formato y persistencia. No toca credenciales ni red.
 
 ## Licencia
 

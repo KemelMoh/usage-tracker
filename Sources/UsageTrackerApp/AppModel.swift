@@ -330,9 +330,55 @@ final class AppModel: ObservableObject {
             let destination = downloads.appendingPathComponent(update.dmgURL.lastPathComponent)
             try data.write(to: destination, options: .atomic)
             updateError = nil
-            NSWorkspace.shared.open(destination)
+
+            // La app se cierra para que el DMG pueda montarse sobre
+            // /Applications: arrastrar la app nueva encima no funciona si la
+            // vieja sigue en ejecución.
+            openUpdateInstaller(at: destination)
+            quitForUpdate()
         } catch {
             updateError = "No se pudo descargar el DMG: \(error.localizedDescription)"
+        }
+    }
+
+    /// Abre el DMG una vez que la app haya terminado.
+    ///
+    /// El proceso auxiliar espera al PID exacto de esta app, no al nombre del
+    /// proceso: así no se queda colgado si hay otra instancia o una app con el
+    /// mismo nombre. En macOS, un hijo sobrevive a la muerte de su padre, así
+    /// que el auxiliar sigue vivo aunque la app se cierre.
+    private func openUpdateInstaller(at url: URL) {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        // La ruta se pasa como argumento y no interpolada en el script, para
+        // que un nombre de archivo raro no rompa la llamada.
+        let script = """
+        while /bin/kill -0 "$1" 2>/dev/null; do
+            /bin/sleep 0.2
+        done
+        /usr/bin/open "$2"
+        """
+
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c", script, "sh", String(pid), url.path]
+        helper.standardOutput = FileHandle.nullDevice
+        helper.standardError = FileHandle.nullDevice
+        helper.standardInput = FileHandle.nullDevice
+
+        do {
+            try helper.run()
+        } catch {
+            // Si no se puede lanzar el auxiliar, se abre igualmente: el
+            // usuario podrá montarlo a mano.
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Cierra la app para que el DMG pueda montarse sobre la instalación
+    /// actual.
+    private func quitForUpdate() {
+        DispatchQueue.main.async {
+            NSApp.terminate(nil)
         }
     }
 

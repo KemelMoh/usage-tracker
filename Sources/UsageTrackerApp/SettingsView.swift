@@ -175,6 +175,7 @@ struct SettingsView: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                         .disabled(model.isDownloadingUpdate)
+                        .help("Descarga el DMG y cierra Usage Tracker para montarlo")
 
                         Link("Ver release", destination: update.pageURL)
                             .font(.caption)
@@ -218,7 +219,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("Descarga el DMG desde GitHub Releases. La instalación sigue siendo manual: abre el DMG y arrastra la app a Aplicaciones.")
+            Text("Al descargar el DMG, Usage Tracker se cierra y lo abre automáticamente. La instalación sigue siendo manual: arrastra la app nueva a Aplicaciones.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

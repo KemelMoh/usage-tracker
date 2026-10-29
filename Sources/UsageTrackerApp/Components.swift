@@ -492,9 +492,10 @@ struct UpdateBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Actualización \(update.version) disponible")
                     .font(.caption.weight(.semibold))
-                Text("Descarga el DMG y arrástralo a Aplicaciones.")
+                Text("Usage Tracker se cerrará y se abrirá el DMG. Arrastra la app nueva a Aplicaciones.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
@@ -512,6 +513,7 @@ struct UpdateBanner: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isDownloading)
+            .help("Descarga el DMG y cierra Usage Tracker para montarlo")
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")

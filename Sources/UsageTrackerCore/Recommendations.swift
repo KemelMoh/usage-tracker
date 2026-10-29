@@ -74,24 +74,6 @@ public enum WorkloadPriceCaps {
     }
 }
 
-extension WorkloadBadge {
-    /// Tope de precio de entrada por millón de tokens.
-    ///
-    /// Valor por defecto, sin ajuste por proveedor. Para las recomendaciones
-    /// hay que usar `WorkloadPriceCaps.cap(_:for:)`.
-    public var maxInputPerMillion: Double {
-        WorkloadPriceCaps.standard[self]?.maxInputPerMillion ?? .infinity
-    }
-
-    /// Tope de precio de salida por millón de tokens.
-    ///
-    /// Valor por defecto, sin ajuste por proveedor. Para las recomendaciones
-    /// hay que usar `WorkloadPriceCaps.cap(_:for:)`.
-    public var maxOutputPerMillion: Double {
-        WorkloadPriceCaps.standard[self]?.maxOutputPerMillion ?? .infinity
-    }
-}
-
 public struct ModelRecommendation: Identifiable, Hashable, Sendable {
     public let model: CatalogModel
     public let badge: WorkloadBadge
