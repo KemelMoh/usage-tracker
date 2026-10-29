@@ -37,6 +37,7 @@ fi
 # internos que no aportan nada al usuario.
 COMMITS="$(git log $RANGE --no-merges --pretty=format:'%s' --reverse \
     | grep -vE '^(Release [0-9]|Bump version|Merge )' \
+    | grep -vE '^(Add automatic release notes|Update release notes|Improve release notes)' \
     || true)"
 
 if [[ -z "$COMMITS" ]]; then
