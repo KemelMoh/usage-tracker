@@ -59,10 +59,15 @@ Hay un tap público separado:
 ```bash
 brew tap KemelMoh/usage-tracker
 brew trust --cask KemelMoh/usage-tracker/usage-tracker
-brew install --cask --no-quarantine usage-tracker
+brew install --cask usage-tracker
 ```
 
-`brew trust` es necesario en Homebrew 7 para taps de terceros. `--no-quarantine` evita el aviso de Gatekeeper de una app ad-hoc no notarizada.
+`brew trust` es necesario en Homebrew 7 para taps de terceros. Homebrew 7 ya no ofrece `--no-quarantine`, así que si macOS bloquea la app:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Usage Tracker.app"
+open "/Applications/Usage Tracker.app"
+```
 
 La release actual del cask es **arm64**. Actualiza con:
 
