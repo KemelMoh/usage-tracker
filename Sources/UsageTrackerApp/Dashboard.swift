@@ -97,7 +97,7 @@ struct DashboardView: View {
             Text("\(model.activeProviders.count) proveedores activos")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text("Usage Tracker 0.1.0")
+            Text("Usage Tracker \(model.appVersion)")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }

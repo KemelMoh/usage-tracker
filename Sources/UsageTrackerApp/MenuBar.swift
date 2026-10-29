@@ -288,7 +288,7 @@ struct PopoverView: View {
             .buttonStyle(.borderless)
             .help("Abrir dashboard completo")
 
-            Text("v0.1.0")
+            Text("v\(model.appVersion)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 

@@ -57,8 +57,8 @@ El DMG no se guarda en el repositorio; se publica como asset de la release.
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
