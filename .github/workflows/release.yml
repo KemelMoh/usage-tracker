@@ -54,6 +54,11 @@ jobs:
       - name: Create DMG
         run: ./scripts/package-dmg.sh "${{ steps.version.outputs.version }}"
 
+      - name: Generate release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/release-notes.sh "$VERSION" > release-notes.md
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,4 +70,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/UsageTracker-${{ steps.version.outputs.version }}.dmg
-          generate_release_notes: true
+          body_path: release-notes.md

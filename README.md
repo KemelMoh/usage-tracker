@@ -200,6 +200,8 @@ Resources/Info.plist          Metadatos del bundle (LSUIElement, macOS 13+)
 Resources/AppIcon.icns        Icono de la app (se incrusta al compilar)
 Resources/logo.png            Logo del README
 docs/screenshots/             Capturas del panel para el README
+scripts/package-dmg.sh        Genera el DMG y su SHA-256
+scripts/release-notes.sh      Genera las notas de la release desde los commits
 build.sh                      Compila, empaqueta y firma Usage Tracker.app
 ```
 
@@ -208,11 +210,19 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
+
+Las notas de la release se generan solas a partir de los commits, agrupadas por tipo. Para verlas antes de publicar:
+
+```bash
+./scripts/release-notes.sh 0.2.2
+```
+
+Si el mensaje de un commit empieza por `feat:`, `fix:`, `perf:` o `docs:`, el commit va a la sección correspondiente. Los que no llevan prefijo se clasifican por palabras clave.
 
 Para que cualquiera pueda descargar el DMG, el repositorio (o al menos sus releases) debe ser público.
 
