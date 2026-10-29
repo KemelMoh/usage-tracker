@@ -670,27 +670,30 @@ func recommendationModel(
     )
 }
 
+// Los precios de estos fixtures están en el rango real del catálogo de
+// OpenCode Go, cuyos topes por banda son más bajos que los de Claude y
+// Copilot.
 let recommendationModels = [
     recommendationModel(
         id: "ultra",
-        input: 4,
-        output: 20,
+        input: 2,
+        output: 10,
         context: 1_000_000,
         releaseDate: "2026-10-20",
         canonical: "vendor/ultra"
     ),
     recommendationModel(
         id: "medium",
-        input: 2,
-        output: 10,
+        input: 1,
+        output: 5,
         context: 200_000,
         releaseDate: "2026-09-20",
         canonical: "vendor/medium"
     ),
     recommendationModel(
         id: "light",
-        input: 0.1,
-        output: 0.4,
+        input: 0.15,
+        output: 0.6,
         context: 32_000,
         releaseDate: "2026-08-20",
         canonical: "vendor/light"
@@ -750,10 +753,142 @@ check(!recommendations.contains { $0.model.modelID == "unknown-price" }, "se des
 check(!recommendations.contains { $0.model.modelID == "deprecated" }, "se descartan deprecated")
 check(!recommendations.contains { $0.model.modelID == "too-expensive" }, "se descartan modelos por encima del tope de coste")
 
-let variant = recommendationModel(
-    id: "ultra-v2",
+// Los topes de precio dependen del proveedor: OpenCode Go tiene un catálogo
+// mucho más barato que Claude o Copilot.
+checkClose(
+    WorkloadPriceCaps.cap(.ultra, for: .opencodeGo).maxInputPerMillion,
+    2.00,
+    "el tope ultra de OpenCode Go es $2 de entrada"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.ultra, for: .opencodeGo).maxOutputPerMillion,
+    10.00,
+    "el tope ultra de OpenCode Go es $10 de salida"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.medium, for: .opencodeGo).maxInputPerMillion,
+    1.50,
+    "el tope medium de OpenCode Go es $1.50 de entrada"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.medium, for: .opencodeGo).maxOutputPerMillion,
+    6.00,
+    "el tope medium de OpenCode Go es $6 de salida"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.light, for: .opencodeGo).maxInputPerMillion,
+    0.40,
+    "el tope light de OpenCode Go es $0.40 de entrada"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.light, for: .opencodeGo).maxOutputPerMillion,
+    1.60,
+    "el tope light de OpenCode Go es $1.60 de salida"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.ultra, for: .claude).maxInputPerMillion,
+    5.00,
+    "Claude mantiene el tope ultra por defecto"
+)
+checkClose(
+    WorkloadPriceCaps.cap(.ultra, for: .copilot).maxInputPerMillion,
+    5.00,
+    "Copilot mantiene el tope ultra por defecto"
+)
+
+// Los topes cambian el resultado según el proveedor. Un modelo de $1.20/$5.50
+// entra en la banda media de OpenCode Go ($1.50/$6) pero en la ultra de
+// Claude ($5/$25), porque allí la banda media solo llega a $2.50/$12.50 y el
+// modelo de $2/$10 ya la ocupa.
+let goMedium = recommendationModel(
+    id: "go-medium",
+    provider: .opencodeGo,
+    input: 1.2,
+    output: 5.5,
+    context: 1_000_000,
+    releaseDate: "2026-10-21",
+    canonical: "vendor/go-medium"
+)
+let goMediumRecommendation = ModelRecommender.recommendations(
+    for: .opencodeGo,
+    from: recommendationModels + [goMedium],
+    now: recommendationNow
+)
+check(
+    goMediumRecommendation.contains { $0.model.modelID == "go-medium" },
+    "un modelo de $1.20 entra en banda en OpenCode Go"
+)
+check(
+    !goMediumRecommendation.contains { $0.badge == .ultra && $0.model.modelID == "go-medium" },
+    "un modelo de $1.20 no es ultra en OpenCode Go, cuyo tope es $2"
+)
+
+let claudeMedium = recommendationModel(
+    id: "claude-medium",
+    provider: .claude,
+    input: 1.2,
+    output: 5.5,
+    context: 1_000_000,
+    releaseDate: "2026-10-21",
+    canonical: "vendor/claude-medium"
+)
+let claudeMediumRecommendation = ModelRecommender.recommendations(
+    for: .claude,
+    from: recommendationModels + [claudeMedium],
+    now: recommendationNow
+)
+check(
+    claudeMediumRecommendation.contains { $0.model.modelID == "claude-medium" },
+    "el mismo modelo también entra en banda en Claude"
+)
+check(
+    !claudeMediumRecommendation.contains { $0.badge == .ultra && $0.model.modelID == "claude-medium" },
+    "en Claude el modelo de $1.20 tampoco llega a ultra"
+)
+
+// Un modelo por encima del tope ultra del proveedor no se recomienda.
+let overCap = recommendationModel(
+    id: "over-cap",
+    provider: .opencodeGo,
     input: 4.5,
     output: 20,
+    context: 1_000_000,
+    releaseDate: "2026-10-21",
+    canonical: "vendor/over-cap"
+)
+let overCapRecommendation = ModelRecommender.recommendations(
+    for: .opencodeGo,
+    from: recommendationModels + [overCap],
+    now: recommendationNow
+)
+check(
+    !overCapRecommendation.contains { $0.model.modelID == "over-cap" },
+    "un modelo por encima del tope ultra de OpenCode Go no se recomienda"
+)
+
+let overCapClaude = recommendationModel(
+    id: "over-cap-claude",
+    provider: .claude,
+    input: 4.5,
+    output: 20,
+    context: 1_000_000,
+    releaseDate: "2026-10-21",
+    canonical: "vendor/over-cap-claude"
+)
+let overCapClaudeRecommendation = ModelRecommender.recommendations(
+    for: .claude,
+    from: recommendationModels + [overCapClaude],
+    now: recommendationNow
+)
+check(
+    overCapClaudeRecommendation.contains { $0.badge == .ultra && $0.model.modelID == "over-cap-claude" },
+    "el mismo modelo sí es ultra en Claude, cuyo tope es $5"
+)
+
+let variant = recommendationModel(
+    id: "ultra-v2",
+    input: 1.8,
+    output: 9,
     context: 1_000_000,
     releaseDate: "2026-10-21",
     canonical: "vendor/ultra"

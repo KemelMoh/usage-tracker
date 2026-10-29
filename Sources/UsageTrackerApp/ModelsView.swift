@@ -193,7 +193,7 @@ struct ModelsCatalogView: View {
             }
 
             if model.modelRecommendationsEnabled, showRecommendedOnly {
-                Text("Topes por 1M (entrada/salida): \(recommendationCapsText). Dentro del tope, contexto y recencia.")
+                Text(capsDescription)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -201,11 +201,43 @@ struct ModelsCatalogView: View {
         }
     }
 
-    private var recommendationCapsText: String {
-        WorkloadBadge.allCases.map { badge in
-            "\(badge.title) ≤ \(capPrice(badge.maxInputPerMillion))/\(capPrice(badge.maxOutputPerMillion))"
+    /// Texto con los topes de la banda.
+    ///
+    /// Los topes dependen del proveedor: el catálogo de OpenCode Go es mucho
+    /// más barato que el de Claude o Copilot. Con un filtro concreto se
+    /// muestran los de ese proveedor; sin filtro se indica que varían y el
+    /// detalle queda en la ayuda de cada distintivo.
+    private var capsDescription: String {
+        let suffix = "Dentro del tope, contexto y recencia."
+
+        if let providerFilter {
+            return "Topes por 1M en \(providerFilter.displayName) (entrada/salida): "
+                + "\(capsText(for: providerFilter)). \(suffix)"
+        }
+
+        // Sin filtro se resume por proveedor para no saturar el panel.
+        let parts = visibleCapProviders.map { provider in
+            "\(provider.displayName): \(capsText(for: provider))"
+        }
+        return "Topes por 1M (entrada/salida): \(parts.joined(separator: " · ")). \(suffix)"
+    }
+
+    /// Topes de las tres bandas de un proveedor.
+    private func capsText(for provider: ProviderID) -> String {
+        let caps = WorkloadPriceCaps.caps(for: provider)
+        return WorkloadBadge.allCases.map { badge -> String in
+            let cap = caps[badge]!
+            return "\(badge.title) ≤ \(capPrice(cap.maxInputPerMillion))/\(capPrice(cap.maxOutputPerMillion))"
         }
         .joined(separator: " · ")
+    }
+
+    /// Proveedores cuyos topes se resumen. Sin filtro, los que aparecen en el
+    /// listado.
+    private var visibleCapProviders: [ProviderID] {
+        let present = Set(recommendationIndex.byProvider.filter { !$0.value.isEmpty }.keys)
+        let ordered = ProviderID.allCases.filter { present.contains($0) }
+        return ordered.isEmpty ? [.claude] : ordered
     }
 
     private func capPrice(_ value: Double) -> String {
@@ -334,7 +366,7 @@ struct ModelsCatalogView: View {
 
             HStack(spacing: 6) {
                 if let badge = recommendationByModelID[entry.id] {
-                    recommendationBadge(badge)
+                    recommendationBadge(badge, provider: entry.provider)
                 }
                 Text(priceLine(entry))
                 Spacer(minLength: 4)
@@ -461,8 +493,9 @@ struct ModelsCatalogView: View {
         .accessibilityLabel("Modelo gratuito")
     }
 
-    private func recommendationBadge(_ badge: WorkloadBadge) -> some View {
-        HStack(spacing: 3) {
+    private func recommendationBadge(_ badge: WorkloadBadge, provider: ProviderID) -> some View {
+        let cap = WorkloadPriceCaps.cap(badge, for: provider)
+        return HStack(spacing: 3) {
             Image(systemName: badge.symbolName)
             Text(badge.title)
         }
@@ -471,7 +504,7 @@ struct ModelsCatalogView: View {
         .padding(.vertical, 1)
         .background(recommendationColor(badge).opacity(0.15), in: Capsule())
         .foregroundStyle(recommendationColor(badge))
-        .help("Recomendado para \(badge.title.lowercased()). Tope: \(String(format: "$%.2f", badge.maxInputPerMillion)) entrada / \(String(format: "$%.2f", badge.maxOutputPerMillion)) salida por 1M.")
+        .help("Recomendado para \(badge.title.lowercased()). Tope: \(String(format: "$%.2f", cap.maxInputPerMillion)) entrada / \(String(format: "$%.2f", cap.maxOutputPerMillion)) salida por 1M.")
         .accessibilityLabel("Recomendado: \(badge.title)")
     }
 

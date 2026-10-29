@@ -85,8 +85,8 @@ El tap está en https://github.com/KemelMoh/homebrew-usage-tracker.
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
@@ -174,7 +174,7 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 - **Copilot Business/Enterprise**: no hay desglose diario por usuario ni por modelo en la API. El precio es por asiento y puede estar pagado por la organización.
 - **OpenCode Go**: el plan (Go / Go Plus) se elige manualmente; la API de uso no lo devuelve.
 - **Catálogo de modelos**: se actualiza como máximo una vez al día. Un modelo muy reciente puede aparecer en vivo sin precio publicado hasta que `models.dev` lo indexe. Los modelos gratuitos publicados en `models.dev` se muestran aunque el listado en vivo de OpenCode todavía no los incluya. `models.dev` tampoco publica políticas de datos, así que la app no puede indicar si un modelo entrena con tus datos; consulta la política del proveedor.
-- **Recomendaciones**: usan `release_date`/`last_updated` de `models.dev`. Si un modelo no tiene fecha, no se recomienda. Los modelos `deprecated` se excluyen de las recomendaciones, aunque pueden seguir apareciendo en la lista completa. Topes por 1M: Light ≤ 0,50/2,50 USD, Medium ≤ 2,50/12,50 USD y Ultra ≤ 5/25 USD. La feature flag está en **Ajustes → General → Recomendaciones de modelos (beta)**.
+- **Recomendaciones**: usan `release_date`/`last_updated` de `models.dev`. Si un modelo no tiene fecha, no se recomienda. Los modelos `deprecated` se excluyen de las recomendaciones, aunque pueden seguir apareciendo en la lista completa. Los topes por 1M (entrada/salida) dependen del proveedor, porque su economía de precios es distinta: en **Claude** y **Copilot**, Light ≤ 0,50/2,50 USD, Medium ≤ 2,50/12,50 USD y Ultra ≤ 5/25 USD; en **OpenCode Go**, Light ≤ 0,40/1,60 USD, Medium ≤ 1,50/6 USD y Ultra ≤ 2/10 USD. La feature flag está en **Ajustes → General → Recomendaciones de modelos (beta)**.
 - **Precios**: son de referencia y se pueden editar por suscripción. La conversión a EUR usa un tipo de cambio interno fijo (0,92); no es configurable desde la interfaz.
 - **Firma**: la app se firma en ad-hoc; al moverla o reconstruirla macOS puede volver a pedir permisos de Keychain o notificaciones.
 - Las notificaciones requieren autorización; si se deniegan, se usa `osascript` como respaldo.

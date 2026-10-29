@@ -22,23 +22,73 @@ public enum WorkloadBadge: String, CaseIterable, Codable, Sendable {
         case .light: return "leaf.fill"
         }
     }
+}
 
-    /// Tope de precio de entrada por millón de tokens.
-    public var maxInputPerMillion: Double {
-        switch self {
-        case .ultra: return 5.00
-        case .medium: return 2.50
-        case .light: return 0.50
+/// Topes de precio de una banda de trabajo, en USD por millón de tokens.
+public struct WorkloadPriceCap: Hashable, Sendable {
+    public let maxInputPerMillion: Double
+    public let maxOutputPerMillion: Double
+
+    public init(maxInputPerMillion: Double, maxOutputPerMillion: Double) {
+        self.maxInputPerMillion = maxInputPerMillion
+        self.maxOutputPerMillion = maxOutputPerMillion
+    }
+}
+
+/// Topes de precio por proveedor y banda.
+///
+/// No todos los proveedores tienen la misma economía de precios. Claude y
+/// Copilot llegan a modelos de $10 por millón de entrada, pero el catálogo de
+/// OpenCode Go se mueve entre $0.10 y $3. Usar los mismos topes para todos
+/// hacía que en OpenCode Go la banda "ultra" no discriminara nada y dejara un
+/// salto de precio de 20× entre la banda más alta y la más baja.
+public enum WorkloadPriceCaps {
+    /// Topes por defecto, usados por Claude y Copilot.
+    public static let standard: [WorkloadBadge: WorkloadPriceCap] = [
+        .ultra: WorkloadPriceCap(maxInputPerMillion: 5.00, maxOutputPerMillion: 25.00),
+        .medium: WorkloadPriceCap(maxInputPerMillion: 2.50, maxOutputPerMillion: 12.50),
+        .light: WorkloadPriceCap(maxInputPerMillion: 0.50, maxOutputPerMillion: 2.50)
+    ]
+
+    /// Topes de OpenCode Go, ajustados a su catálogo real.
+    public static let openCodeGo: [WorkloadBadge: WorkloadPriceCap] = [
+        .ultra: WorkloadPriceCap(maxInputPerMillion: 2.00, maxOutputPerMillion: 10.00),
+        .medium: WorkloadPriceCap(maxInputPerMillion: 1.50, maxOutputPerMillion: 6.00),
+        .light: WorkloadPriceCap(maxInputPerMillion: 0.40, maxOutputPerMillion: 1.60)
+    ]
+
+    /// Topes que aplican a un proveedor.
+    public static func caps(for provider: ProviderID) -> [WorkloadBadge: WorkloadPriceCap] {
+        switch provider {
+        case .opencodeGo: return openCodeGo
+        case .claude, .copilot: return standard
         }
     }
 
+    /// Tope de una banda para un proveedor.
+    public static func cap(
+        _ badge: WorkloadBadge,
+        for provider: ProviderID
+    ) -> WorkloadPriceCap {
+        caps(for: provider)[badge] ?? standard[badge]!
+    }
+}
+
+extension WorkloadBadge {
+    /// Tope de precio de entrada por millón de tokens.
+    ///
+    /// Valor por defecto, sin ajuste por proveedor. Para las recomendaciones
+    /// hay que usar `WorkloadPriceCaps.cap(_:for:)`.
+    public var maxInputPerMillion: Double {
+        WorkloadPriceCaps.standard[self]?.maxInputPerMillion ?? .infinity
+    }
+
     /// Tope de precio de salida por millón de tokens.
+    ///
+    /// Valor por defecto, sin ajuste por proveedor. Para las recomendaciones
+    /// hay que usar `WorkloadPriceCaps.cap(_:for:)`.
     public var maxOutputPerMillion: Double {
-        switch self {
-        case .ultra: return 25.00
-        case .medium: return 12.50
-        case .light: return 2.50
-        }
+        WorkloadPriceCaps.standard[self]?.maxOutputPerMillion ?? .infinity
     }
 }
 
@@ -184,13 +234,16 @@ public enum ModelRecommender {
         candidates = Array(byCanonical.values)
 
         // Bandas de precio: Light es lo más barato; Medium sube el tope; Ultra
-        // es la banda premium, pero también con un máximo.
-        let lightPool = candidates.filter { fits($0.model, .light) }
+        // es la banda premium, pero también con un máximo. Los topes dependen
+        // del proveedor: el catálogo de OpenCode Go es mucho más barato que
+        // el de Claude o Copilot y necesita bandas propias.
+        let caps = WorkloadPriceCaps.caps(for: provider)
+        let lightPool = candidates.filter { fits($0.model, .light, caps: caps) }
         let mediumPool = candidates.filter {
-            fits($0.model, .medium) && !fits($0.model, .light)
+            fits($0.model, .medium, caps: caps) && !fits($0.model, .light, caps: caps)
         }
         let ultraPool = candidates.filter {
-            fits($0.model, .ultra) && !fits($0.model, .medium)
+            fits($0.model, .ultra, caps: caps) && !fits($0.model, .medium, caps: caps)
         }
 
         var selected: [(candidate: Candidate, badge: WorkloadBadge)] = []
@@ -211,7 +264,7 @@ public enum ModelRecommender {
         for badge in [WorkloadBadge.ultra, .medium, .light]
             where !selected.contains(where: { $0.badge == badge }) {
             let fallback = candidates.filter {
-                fits($0.model, badge) && !used.contains($0.model.id)
+                fits($0.model, badge, caps: caps) && !used.contains($0.model.id)
             }
             add(best(in: fallback, excluding: used), as: badge)
         }
@@ -233,13 +286,18 @@ public enum ModelRecommender {
         }
     }
 
-    private static func fits(_ model: CatalogModel, _ badge: WorkloadBadge) -> Bool {
+    private static func fits(
+        _ model: CatalogModel,
+        _ badge: WorkloadBadge,
+        caps: [WorkloadBadge: WorkloadPriceCap]
+    ) -> Bool {
         guard let input = model.inputPerMillion,
               let output = model.outputPerMillion else {
             return false
         }
-        return input <= badge.maxInputPerMillion
-            && output <= badge.maxOutputPerMillion
+        guard let cap = caps[badge] else { return false }
+        return input <= cap.maxInputPerMillion
+            && output <= cap.maxOutputPerMillion
     }
 
     private static func best(
