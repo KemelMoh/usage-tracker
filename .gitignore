@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift Package Manager / Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+*.xcarchive
+*.xcuserstate
+xcuserdata/
+
+# Build artifacts
+*.app/
+*.dmg
+*.pkg
+*.zip
+release/
+
+# Local configuration / secrets
+.env
+.env.*
+*.local
+
+# Temporary files
+*.swp
+*.tmp
