@@ -658,8 +658,9 @@ final class AppModel: ObservableObject {
     private func scheduleSave() {
         saveWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                self?.persist()
+                self.persist()
             }
         }
         saveWorkItem = item
@@ -670,8 +671,9 @@ final class AppModel: ObservableObject {
         timer?.invalidate()
         let interval = TimeInterval(max(1, settings.refreshMinutes) * 60)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                await self?.refresh()
+                await self.refresh()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -680,8 +682,9 @@ final class AppModel: ObservableObject {
 
     private func configureClock() {
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.clock = Date()
+                self.clock = Date()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
