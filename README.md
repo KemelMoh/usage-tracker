@@ -101,7 +101,7 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 |---|---|
 | **Panel compacto** | Al hacer clic en el icono se abre el panel, con pestañas **Uso** y **Modelos**, refresco y engranaje de ajustes. |
 | **Cuota actual** | Ventanas de uso de cada proveedor (5 h, semanal, mensual…), porcentaje consumido, cuenta atrás hasta el reinicio y previsión de consumo al final de la ventana. |
-| **Valor de uso a 30 días** | Coste estimado a partir de los tokens y las tarifas públicas. En Copilot, premium requests × 0,04 USD. |
+| **Valor de uso a 30 días** | Coste estimado a partir de los tokens y las tarifas públicas. En Copilot, AI credits × 0,01 USD. |
 | **Catálogo de modelos** | Contexto, precios de entrada/salida, caché y capacidad de razonamiento o herramientas. Combina el listado en vivo de OpenCode Go con los precios de `models.dev`. Los modelos con tarifa 0 se marcan con **Gratis**. |
 | **Recomendaciones (beta)** | 3 modelos distintos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M que dependen del proveedor. Solo modelos con precio publicado, no gratuitos, no deprecated y de los últimos 6 meses. |
 | **Plan y precio automáticos** | Claude (sesión de Claude Code) y Copilot (cuenta de GitHub) detectan su plan. Lo detectado no sobrescribe lo que el usuario ajusta a mano. |
@@ -118,13 +118,13 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 |---|---|---|---|
 | OpenCode Go | `GET https://opencode.ai/zen/go/v1/usage` | `opencode-go.key` de `~/.local/share/opencode/auth.json`, o una API key manual | Devuelve las ventanas de 5 h, semanal y mensual. |
 | OpenCode Go · modelos | `GET https://opencode.ai/zen/go/v1/models` | — | Listado en vivo de modelos disponibles. |
-| GitHub Copilot | `GET https://api.github.com/copilot_internal/user` | `gh auth token`, o un token manual | Plan y premium requests. Business/Enterprise no exponen historial diario por usuario. |
+| GitHub Copilot | `GET https://api.github.com/copilot_internal/user` | `gh auth token`, o un token manual | Plan y AI credits. Business/Enterprise no exponen historial por usuario. |
 | Claude | `GET https://api.anthropic.com/api/oauth/usage` | Keychain `Claude Code-credentials`, o un token manual | Si el token de Claude Code caducó, la app lo indica y sigue usando el historial local. |
 | Modelos y precios | `GET https://models.dev/api.json?type=all` | — | Precios públicos de Anthropic, GitHub Copilot y OpenCode Go. Se cachea 24 h. |
 | Historial Claude | `~/.claude/stats-cache.json` + transcripciones `~/.claude/projects/**/*.jsonl` | — | Solo se leen los campos de uso (`usage`, `model`, `timestamp`), no el contenido de los mensajes. |
 | Historial OpenCode | `~/.local/share/opencode/opencode.db` (SQLite, solo lectura) | — | Consulta la tabla `session` filtrando `opencode-go`. |
 
-El **valor de uso** de 30 días suma el coste estimado de los tokens consumidos por los proveedores activos. En Claude y OpenCode se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot se multiplican las premium requests usadas por la tarifa de exceso de 0,04 USD por request. **Son estimaciones, no facturas.**
+El **valor de uso** de 30 días suma el coste estimado de los tokens consumidos por los proveedores activos. En Claude y OpenCode se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot se multiplican los AI credits consumidos por 0,01 USD, que es lo que vale cada credit desde que GitHub sustituyó los premium requests el 1 de junio de 2026. **Son estimaciones, no facturas.**
 
 El catálogo de modelos se guarda en el estado local y se actualiza al arrancar si tiene más de 24 horas, al pulsar refrescar en la pestaña **Modelos** o al abrir el dashboard. Si `models.dev` no responde, se conserva el último catálogo válido.
 
@@ -151,7 +151,7 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 
 - Claude: se combinan `stats-cache.json` y las transcripciones; las transcripciones mandan cuando hay datos del mismo día.
 - OpenCode: agregado diario por modelo desde su base SQLite.
-- Copilot: como la API no ofrece histórico por usuario, la app guarda un punto por día con las premium requests acumuladas cada vez que refresca.
+- Copilot: como la API no ofrece histórico por usuario, la app guarda un punto por día. La API solo expone el acumulado de AI credits del ciclo, así que el consumo de cada día se obtiene restando el acumulado del día anterior.
 - Se conservan 180 días. La previsión usa el porcentaje consumido, el tiempo transcurrido y la duración de la ventana; la confianza es baja al principio de la ventana y sube con el tiempo.
 
 ## 🔐 Datos y credenciales

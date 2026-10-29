@@ -140,5 +140,10 @@ public enum PricingCatalog {
         return cost(model: model, tokens: tokens, catalog: catalog) / Double(total)
     }
 
-    public static let copilotOveragePerRequestUSD = 0.04
+    /// Valor de un GitHub AI credit en USD.
+    ///
+    /// GitHub sustituyó los premium requests por AI credits el 1 de junio de
+    /// 2026. Cada credit vale 0,01 USD y se consume por tokens, no por
+    /// petición. Las completions de código siguen sin consumir credits.
+    public static let copilotCreditUSD = 0.01
 }

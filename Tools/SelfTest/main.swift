@@ -954,6 +954,114 @@ check(
 )
 check(!index.providersBelowMinimum.contains(.opencodeGo), "un proveedor con 3 modelos no se marca")
 
+// MARK: - AI credits de GitHub Copilot
+
+section("AI credits de Copilot")
+
+checkClose(PricingCatalog.copilotCreditUSD, 0.01, "un AI credit vale 0,01 USD")
+
+// El importe de los credits conserva los centimos, a diferencia de `money`
+// que redondea a partir de 10 USD.
+checkEqual(NumberFormat.usd(189.30), "$189.30", "el importe de credits mantiene los centimos")
+checkEqual(NumberFormat.usd(3.89), "$3.89", "un importe pequeno de credits")
+
+// La respuesta real de la API de Copilot tras el cambio a AI credits.
+let copilotAPIResponse = """
+{
+  "copilot_plan": "business",
+  "quota_reset_date": "2026-11-01",
+  "token_based_billing": true,
+  "quota_snapshots": {
+    "premium_interactions": {
+      "quota_id": "premium_interactions",
+      "entitlement": 20000,
+      "remaining": 1070,
+      "quota_remaining": 1070.2,
+      "percent_remaining": 5.3,
+      "credits_used": 18930,
+      "unlimited": false,
+      "token_based_billing": true
+    }
+  }
+}
+"""
+
+// Se comprueba el parsing del JSON con los nombres reales de la API.
+let copilotQuota = try JSONDecoder().decode(
+    CopilotUserResponse.self,
+    from: Data(copilotAPIResponse.utf8)
+)
+checkEqual(copilotQuota.quota_snapshots?["premium_interactions"]?.credits_used, 18930, "credits_used se lee")
+checkClose(
+    copilotQuota.quota_snapshots?["premium_interactions"]?.quota_remaining ?? 0,
+    1070.2,
+    "quota_remaining conserva los decimales"
+)
+checkEqual(copilotQuota.token_based_billing, true, "la API indica facturacion por tokens")
+
+// El consumo diario se obtiene restando el acumulado del dia anterior.
+let copilotHistory = [
+    DailyUsage(date: DateUtils.parseDay("2026-10-26")!, provider: .copilot,
+               creditsUsed: 120, creditsCumulative: 120),
+    DailyUsage(date: DateUtils.parseDay("2026-10-27")!, provider: .copilot,
+               creditsUsed: 585, creditsCumulative: 705),
+    DailyUsage(date: DateUtils.parseDay("2026-10-28")!, provider: .copilot,
+               creditsUsed: 389, creditsCumulative: 1094)
+]
+let copilotDailyTotal = copilotHistory.reduce(0.0) { $0 + ($1.creditsUsed ?? 0) }
+checkClose(copilotDailyTotal, 1094, "los credits diarios suman el acumulado del ciclo")
+checkClose(
+    copilotDailyTotal * PricingCatalog.copilotCreditUSD,
+    10.94,
+    "el valor de Copilot son los credits diarios por 0,01 USD"
+)
+
+// El valor por defecto de la tarifa antigua no debe quedar en el codigo.
+check(
+    !String(describing: PricingCatalog.copilotCreditUSD).contains("0.04"),
+    "la tarifa de premium requests se ha retirado"
+)
+
+// Migracion: el estado antiguo guardaba los premium requests acumulados.
+let legacyJSON = """
+{
+  "date": "2026-10-28T00:00:00Z",
+  "provider": "copilot",
+  "tokens": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "unknown": 0 },
+  "premiumRequests": 18930,
+  "models": []
+}
+"""
+do {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let legacy = try decoder.decode(DailyUsage.self, from: Data(legacyJSON.utf8))
+    checkEqual(legacy.creditsCumulative, 18930, "el acumulado antiguo se migra a creditsCumulative")
+    checkEqual(legacy.creditsUsed, nil, "el consumo diario no se inventa en la migracion")
+} catch {
+    check(false, "migracion del historial antiguo de Copilot: \(error)")
+}
+
+// Y el estado nuevo se guarda con los campos nuevos.
+do {
+    let point = DailyUsage(
+        date: DateUtils.parseDay("2026-10-29")!,
+        provider: .copilot,
+        costUSD: 3.89,
+        creditsUsed: 389,
+        creditsCumulative: 19319
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let data = try encoder.encode(point)
+    let text = String(data: data, encoding: .utf8) ?? ""
+    check(text.contains("creditsUsed"), "el estado nuevo guarda creditsUsed")
+    check(text.contains("creditsCumulative"), "el estado nuevo guarda creditsCumulative")
+    check(!text.contains("premiumRequests"), "el estado nuevo ya no guarda premiumRequests")
+} catch {
+    check(false, "serializacion del historial nuevo de Copilot: \(error)")
+}
+
 // MARK: - Actualizaciones
 
 section("Actualizaciones")

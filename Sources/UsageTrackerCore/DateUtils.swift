@@ -243,4 +243,16 @@ public enum NumberFormat {
         formatter.maximumFractionDigits = fractionDigits
         return formatter.string(from: NSNumber(value: converted)) ?? "\(currency.symbol)\(converted)"
     }
+
+    /// Importe en USD con siempre dos decimales.
+    ///
+    /// Se usa donde el centimo importa, como el valor de los AI credits de
+    /// Copilot. `money` redondea a cero decimales a partir de 10 USD.
+    public static func usd(_ value: Double) -> String {
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        usdFormatter.minimumFractionDigits = 2
+        usdFormatter.maximumFractionDigits = 2
+        return usdFormatter.string(from: NSNumber(value: value)) ?? "$\(value)"
+    }
 }

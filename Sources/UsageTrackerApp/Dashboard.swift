@@ -200,7 +200,7 @@ struct OverviewView: View {
                     }
                 }
 
-                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos. No es una factura. Copilot usa la tarifa de exceso de 0,04 $/premium request como referencia.")
+                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos. No es una factura. Copilot se valora a 0,01 $ por AI credit.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +262,7 @@ struct ValueSummaryCard: View {
                 Divider()
                     .padding(.top, 2)
 
-                Text("Claude y OpenCode: tokens × tarifas de models.dev. Copilot: premium requests × 0,04 $.")
+                Text("Claude y OpenCode: tokens × tarifas de models.dev. Copilot: AI credits × 0,01 $.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -375,7 +375,7 @@ struct HistoryView: View {
                         message: model.activeProviders.isEmpty
                             ? "No hay proveedores activos. Actívalos desde Suscripciones o desde el engranaje del panel."
                             : (provider == .copilot
-                                ? "Copilot no expone historial diario por usuario. Usage Tracker irá construyendo el suyo en cada actualización."
+                                ? "Copilot no expone historial por usuario. Usage Tracker irá construyendo el de AI credits en cada actualización."
                                 : "No hay datos en el rango seleccionado.")
                     )
                     .card()
@@ -393,7 +393,7 @@ struct HistoryView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(provider == .copilot ? "Premium requests acumuladas" : "Tokens por día")
+                    Text(provider == .copilot ? "AI credits por día" : "Tokens por día")
                         .font(.headline)
                     Text("\(filtered.count) días con datos")
                         .font(.caption2)
@@ -410,18 +410,11 @@ struct HistoryView: View {
 
             if provider == .copilot {
                 Chart(filtered) { item in
-                    LineMark(
+                    BarMark(
                         x: .value("Día", item.date, unit: .day),
-                        y: .value("Premium requests", item.premiumRequests ?? 0)
+                        y: .value("AI credits", item.creditsUsed ?? 0)
                     )
-                    .foregroundStyle(provider.color)
-                    .interpolationMethod(.monotone)
-
-                    PointMark(
-                        x: .value("Día", item.date, unit: .day),
-                        y: .value("Premium requests", item.premiumRequests ?? 0)
-                    )
-                    .foregroundStyle(provider.color)
+                    .foregroundStyle(provider.color.gradient)
                 }
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 6)) {

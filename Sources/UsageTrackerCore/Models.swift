@@ -331,8 +331,9 @@ public struct ProviderSnapshot: Codable, Identifiable, Sendable {
             .max()
     }
 
-    public var premiumUsed: Double? {
-        windows.first(where: { $0.id == "premium" })?.usedValue
+    /// AI credits consumidos en el ciclo de cuota actual (solo Copilot).
+    public var creditsUsed: Double? {
+        windows.first(where: { $0.id == "credits" })?.usedValue
     }
 
     public static func failure(
@@ -624,7 +625,14 @@ public struct DailyUsage: Codable, Identifiable, Hashable, Sendable {
     public var provider: ProviderID
     public var tokens: TokenBreakdown
     public var costUSD: Double?
-    public var premiumRequests: Double?
+    /// AI credits consumidos **en ese dia** (solo Copilot).
+    ///
+    /// La API de Copilot solo expone el acumulado del ciclo de cuota, asi que
+    /// el consumo diario se obtiene restando el acumulado del dia anterior.
+    public var creditsUsed: Double?
+    /// AI credits consumidos acumulados en el ciclo de cuota hasta ese dia.
+    /// Es el valor que devuelve la API y sirve para calcular el diario.
+    public var creditsCumulative: Double?
     public var models: [ModelUsage]
 
     public var id: Date { date }
@@ -634,15 +642,54 @@ public struct DailyUsage: Codable, Identifiable, Hashable, Sendable {
         provider: ProviderID,
         tokens: TokenBreakdown = .zero,
         costUSD: Double? = nil,
-        premiumRequests: Double? = nil,
+        creditsUsed: Double? = nil,
+        creditsCumulative: Double? = nil,
         models: [ModelUsage] = []
     ) {
         self.date = date
         self.provider = provider
         self.tokens = tokens
         self.costUSD = costUSD
-        self.premiumRequests = premiumRequests
+        self.creditsUsed = creditsUsed
+        self.creditsCumulative = creditsCumulative
         self.models = models
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case date, provider, tokens, costUSD, creditsUsed, creditsCumulative, models
+        /// Campo antiguo: Copilot guardaba aqui los premium requests
+        /// acumulados del ciclo. GitHub los sustituyo por AI credits, que se
+        /// valoran igual en numero pero a 0,01 USD en vez de 0,04.
+        case legacyPremiumRequests = "premiumRequests"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(Date.self, forKey: .date)
+        provider = try container.decode(ProviderID.self, forKey: .provider)
+        tokens = try container.decodeIfPresent(TokenBreakdown.self, forKey: .tokens) ?? .zero
+        costUSD = try container.decodeIfPresent(Double.self, forKey: .costUSD)
+        creditsUsed = try container.decodeIfPresent(Double.self, forKey: .creditsUsed)
+        creditsCumulative = try container.decodeIfPresent(Double.self, forKey: .creditsCumulative)
+        models = try container.decodeIfPresent([ModelUsage].self, forKey: .models) ?? []
+
+        // Migracion desde el formato de premium requests: el valor era el
+        // acumulado del ciclo, asi que pasa a creditsCumulative.
+        if creditsCumulative == nil,
+           let legacy = try container.decodeIfPresent(Double.self, forKey: .legacyPremiumRequests) {
+            creditsCumulative = legacy
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(date, forKey: .date)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(tokens, forKey: .tokens)
+        try container.encodeIfPresent(costUSD, forKey: .costUSD)
+        try container.encodeIfPresent(creditsUsed, forKey: .creditsUsed)
+        try container.encodeIfPresent(creditsCumulative, forKey: .creditsCumulative)
+        try container.encode(models, forKey: .models)
     }
 }
 

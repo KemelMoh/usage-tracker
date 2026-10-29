@@ -249,14 +249,14 @@ public struct CopilotClient: Sendable {
             let resetDate = DateUtils.parseDay(response.quota_reset_date)
 
             guard let quota = response.quota_snapshots?["premium_interactions"] else {
-                throw ProviderError.decoding("No se encontró el cupo de premium requests.")
+                throw ProviderError.decoding("No se encontró el cupo de AI credits.")
             }
 
             let window: QuotaWindow
             if quota.unlimited == true {
                 window = QuotaWindow(
-                    id: "premium",
-                    label: "Premium requests",
+                    id: "credits",
+                    label: "AI credits",
                     usedPercent: 0,
                     resetsAt: resetDate,
                     windowDuration: 30 * 86_400,
@@ -267,8 +267,11 @@ public struct CopilotClient: Sendable {
                 )
             } else {
                 let entitlement = quota.entitlement ?? 0
-                let remaining = quota.remaining ?? 0
-                let used = max(0, entitlement - remaining)
+                // `credits_used` es el contador real de credits consumidos en
+                // el ciclo. Antes se deducía de entitlement - remaining, que
+                // redondea a enteros y pierde decimales.
+                let used = quota.credits_used
+                    ?? max(0, entitlement - (quota.quota_remaining ?? quota.remaining ?? 0))
                 let percentUsed: Double
                 if let percentRemaining = quota.percent_remaining {
                     percentUsed = max(0, 100 - percentRemaining)
@@ -278,13 +281,15 @@ public struct CopilotClient: Sendable {
                     percentUsed = 0
                 }
 
+                let spentUSD = used * PricingCatalog.copilotCreditUSD
                 window = QuotaWindow(
-                    id: "premium",
-                    label: "Premium requests",
+                    id: "credits",
+                    label: "AI credits",
                     usedPercent: percentUsed,
                     resetsAt: resetDate,
                     windowDuration: 30 * 86_400,
-                    detail: "\(NumberFormat.decimal(used))/\(NumberFormat.decimal(entitlement))",
+                    detail: "\(NumberFormat.decimal(used))/\(NumberFormat.decimal(entitlement))"
+                        + " · \(NumberFormat.usd(spentUSD))",
                     usedValue: used,
                     limitValue: entitlement
                 )
@@ -312,19 +317,25 @@ public struct CopilotClient: Sendable {
     }
 }
 
-private struct CopilotUserResponse: Decodable {
-    let copilot_plan: String?
-    let quota_reset_date: String?
-    let login: String?
-    let quota_snapshots: [String: Quota]?
+public struct CopilotUserResponse: Decodable {
+    public let copilot_plan: String?
+    public let quota_reset_date: String?
+    public let login: String?
+    public let quota_snapshots: [String: Quota]?
+    /// A partir de junio de 2026 la facturacion es por AI credits, no por
+    /// premium requests.
+    public let token_based_billing: Bool?
 
-    struct Quota: Decodable {
-        let entitlement: Double?
-        let remaining: Double?
-        let percent_remaining: Double?
-        let unlimited: Bool?
-        let quota_id: String?
-        let credits_used: Double?
+    public struct Quota: Decodable {
+        public let entitlement: Double?
+        public let remaining: Double?
+        /// Restante con decimales. `remaining` viene redondeado.
+        public let quota_remaining: Double?
+        public let percent_remaining: Double?
+        public let unlimited: Bool?
+        public let quota_id: String?
+        /// Credits consumidos en el ciclo actual.
+        public let credits_used: Double?
     }
 }
 

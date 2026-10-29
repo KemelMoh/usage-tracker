@@ -216,7 +216,9 @@ final class AppModel: ObservableObject {
 
     func usageValue(for provider: ProviderID) -> Double {
         if provider == .copilot {
-            return (snapshots[.copilot]?.premiumUsed ?? 0) * PricingCatalog.copilotOveragePerRequestUSD
+            // Los AI credits del ciclo se convierten en consumo diario
+            // restando el acumulado del dia anterior, y se valoran a 0,01 USD.
+            return copilotDailyCredits * PricingCatalog.copilotCreditUSD
         }
 
         let cutoff = DateUtils.monthsAgo(1)
@@ -224,6 +226,55 @@ final class AppModel: ObservableObject {
             .filter { $0.date >= cutoff }
             .compactMap(\.costUSD)
             .reduce(0, +)
+    }
+
+    /// AI credits consumidos por día en los últimos 30 días (solo Copilot).
+    ///
+    /// La API solo da el acumulado del ciclo, asi que el consumo de cada dia
+    /// es la diferencia con el dia anterior. Si el ciclo se reinicia, el
+    /// acumulado baja y la diferencia se toma como el consumo de ese dia.
+    ///
+    /// El primer dia del ciclo no se puede comparar con el anterior, asi que
+    /// se cuenta entero como consumo de ese dia. Ese valor viene de la API,
+    /// no de la app.
+    var copilotDailyCredits: Double {
+        let cutoff = DateUtils.monthsAgo(1)
+        let entries = (history[.copilot] ?? [])
+            .filter { $0.date >= cutoff }
+            .sorted { $0.date < $1.date }
+
+        // Fecha en que termina el ciclo de cuota segun la API. El consumo
+        // acumulado que llega hasta ahi incluye dias que la app no ha
+        // visto, asi que no se puede usar como diferencia.
+        let cycleEnd = snapshots[.copilot]?
+            .windows
+            .first(where: { $0.id == "credits" })?
+            .resetsAt
+            .map { DateUtils.startOfDay($0) }
+
+        var total = 0.0
+        var previous: Double?
+        for entry in entries {
+            guard let cumulative = entry.creditsCumulative ?? entry.creditsUsed else { continue }
+
+            // El dia en que el ciclo se reinicia trae el acumulado de todo el
+            // ciclo anterior: no sirve como diferencia.
+            if let cycleEnd, DateUtils.startOfDay(entry.date) >= cycleEnd {
+                previous = nil
+                continue
+            }
+
+            let daily: Double
+            if let previous, cumulative >= previous {
+                daily = cumulative - previous
+            } else {
+                // Primer registro que tenemos o reinicio del ciclo.
+                daily = cumulative
+            }
+            total += daily
+            previous = cumulative
+        }
+        return total
     }
 
     /// Valor de uso por proveedor en una sola pasada sobre el historial.
@@ -235,10 +286,7 @@ final class AppModel: ObservableObject {
         let cutoff = DateUtils.monthsAgo(1)
         var values: [ProviderID: Double] = [:]
 
-        // Copilot no depende del historial: se calcula siempre, aunque todavía
-        // no haya ninguna entrada guardada.
-        values[.copilot] = (snapshots[.copilot]?.premiumUsed ?? 0)
-            * PricingCatalog.copilotOveragePerRequestUSD
+        values[.copilot] = copilotDailyCredits * PricingCatalog.copilotCreditUSD
 
         for (provider, entries) in history where provider != .copilot {
             var total = 0.0
@@ -552,7 +600,7 @@ final class AppModel: ObservableObject {
         if activeSet.contains(.copilot),
            let copilot = snapshots[.copilot],
            copilot.status == .ok,
-           let used = copilot.premiumUsed {
+           let used = copilot.creditsUsed {
             appendCopilotSnapshot(used)
         }
 
@@ -593,7 +641,7 @@ final class AppModel: ObservableObject {
         let windowID: String?
         switch snapshot.provider {
         case .opencodeGo: windowID = "monthly"
-        case .copilot: windowID = "premium"
+        case .copilot: windowID = "credits"
         case .claude: windowID = nil
         }
 
@@ -607,14 +655,41 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func appendCopilotSnapshot(_ used: Double) {
+    /// Guarda el punto diario de Copilot.
+    ///
+    /// La API solo expone el acumulado de AI credits del ciclo. Se guarda ese
+    /// acumulado y el consumo de ese dia, que es la diferencia con el punto
+    /// anterior. Si el ciclo se reinicia y el acumulado baja, el acumulado
+    /// entero se cuenta como consumo del dia.
+    private func appendCopilotSnapshot(_ cumulative: Double) {
         let today = DateUtils.startOfDay(Date())
         var points = history[.copilot] ?? []
 
-        if let index = points.firstIndex(where: { DateUtils.isSameDay($0.date, today) }) {
-            points[index].premiumRequests = used
+        let previous = points
+            .filter { DateUtils.isSameDay($0.date, today) == false }
+            .map(\.creditsCumulative)
+            .compactMap { $0 }
+            .max()
+
+        let daily: Double
+        if let previous, cumulative >= previous {
+            daily = cumulative - previous
         } else {
-            points.append(DailyUsage(date: today, provider: .copilot, premiumRequests: used))
+            daily = cumulative
+        }
+
+        let point = DailyUsage(
+            date: today,
+            provider: .copilot,
+            costUSD: daily * PricingCatalog.copilotCreditUSD,
+            creditsUsed: daily,
+            creditsCumulative: cumulative
+        )
+
+        if let index = points.firstIndex(where: { DateUtils.isSameDay($0.date, today) }) {
+            points[index] = point
+        } else {
+            points.append(point)
         }
 
         history[.copilot] = HistoryMerger.merge(existing: points, incoming: [])
