@@ -26,9 +26,6 @@ jobs:
       - name: Run self-tests
         run: swift run UsageTrackerSelfTest
 
-      - name: Build release app
-        run: ./build.sh release
-
       - name: Resolve version
         id: version
         shell: bash
@@ -42,10 +39,17 @@ jobs:
             echo "No se pudo determinar la versión." >&2
             exit 1
           fi
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "Usage Tracker.app/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "Usage Tracker.app/Contents/Info.plist"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Versión: $VERSION"
+
+      - name: Build release app
+        env:
+          USAGE_TRACKER_VERSION: ${{ steps.version.outputs.version }}
+          USAGE_TRACKER_BUILD: ${{ github.run_number }}
+        run: ./build.sh release
+
+      - name: Verify code signature
+        run: codesign --verify --deep --strict --verbose=2 "Usage Tracker.app"
 
       - name: Create DMG
         run: ./scripts/package-dmg.sh "${{ steps.version.outputs.version }}"

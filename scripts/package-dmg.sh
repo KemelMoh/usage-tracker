@@ -9,6 +9,11 @@ if [[ ! -d "$APP" ]]; then
     exit 1
 fi
 
+if ! codesign --verify --deep --strict "$APP" >/dev/null 2>&1; then
+    echo "La firma de Usage Tracker.app no es válida. No se genera el DMG." >&2
+    exit 1
+fi
+
 VERSION="${1:-$("/usr/libexec/PlistBuddy" -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")}"
 if [[ -z "$VERSION" ]]; then
     echo "No se pudo determinar la versión." >&2

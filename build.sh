@@ -39,6 +39,17 @@ if [[ -d "$ROOT/Resources/ProviderIcons" ]]; then
     cp "$ROOT/Resources/ProviderIcons"/*.png "$APP/Contents/Resources/ProviderIcons/"
 fi
 
+# La versión debe fijarse antes de firmar; modificar el Info.plist después
+# invalida la firma y macOS muestra la app como dañada.
+if [[ -n "${USAGE_TRACKER_VERSION:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $USAGE_TRACKER_VERSION" \
+        "$APP/Contents/Info.plist"
+fi
+if [[ -n "${USAGE_TRACKER_BUILD:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $USAGE_TRACKER_BUILD" \
+        "$APP/Contents/Info.plist"
+fi
+
 if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
     cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" 2>/dev/null || true
@@ -47,9 +58,14 @@ fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "→ Firmando (ad-hoc)…"
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || {
-    echo "Aviso: no se pudo firmar ad-hoc. La app puede seguir abriéndose, pero macOS pedirá permisos de nuevo." >&2
-}
+if ! codesign --force --deep --sign - "$APP" >/dev/null 2>&1; then
+    echo "No se pudo firmar la app." >&2
+    exit 1
+fi
+if ! codesign --verify --deep --strict "$APP" >/dev/null 2>&1; then
+    echo "La firma de la app no es válida." >&2
+    exit 1
+fi
 
 echo "✓ Listo: $APP"
 echo "  Abre con: open \"$APP\""
