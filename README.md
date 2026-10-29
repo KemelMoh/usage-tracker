@@ -47,7 +47,7 @@ El workflow de release genera `UsageTracker-x.y.z.dmg` y lo adjunta a la release
    - clic derecho en la app → **Abrir** → **Abrir**, o
    - ejecuta:
      ```bash
-     xattr -cr "/Applications/Usage Tracker.app"
+     xattr -dr com.apple.quarantine "/Applications/Usage Tracker.app"
      ```
 
 El DMG no se guarda en el repositorio; se publica como asset de la release.
@@ -62,7 +62,9 @@ brew trust --cask KemelMoh/usage-tracker/usage-tracker
 brew install --cask usage-tracker
 ```
 
-`brew trust` es necesario en Homebrew 7 para taps de terceros. Homebrew 7 ya no ofrece `--no-quarantine`, así que si macOS bloquea la app:
+`brew trust` es necesario en Homebrew 7 para taps de terceros.
+
+Si macOS bloquea la app al abrirla por primera vez, puedes abrirla con clic derecho → **Abrir**, o ejecutar:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Usage Tracker.app"
