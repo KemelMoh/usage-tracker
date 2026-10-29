@@ -1,0 +1,64 @@
+name: Release DMG
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión sin la v, por ejemplo 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Run self-tests
+        run: swift run UsageTrackerSelfTest
+
+      - name: Build release app
+        run: ./build.sh release
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "No se pudo determinar la versión." >&2
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "Usage Tracker.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "Usage Tracker.app/Contents/Info.plist"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Versión: $VERSION"
+
+      - name: Create DMG
+        run: ./scripts/package-dmg.sh "${{ steps.version.outputs.version }}"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UsageTracker-${{ steps.version.outputs.version }}.dmg
+          path: release/UsageTracker-${{ steps.version.outputs.version }}.dmg
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/UsageTracker-${{ steps.version.outputs.version }}.dmg
+          generate_release_notes: true

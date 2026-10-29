@@ -36,6 +36,34 @@ El script compila en release, crea `Usage Tracker.app` en la raíz del proyecto,
 
 Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El arranque automático al iniciar sesión necesita que la app esté en `/Applications` (macOS lo exige para `SMAppService`).
 
+## Instalar desde el DMG
+
+El workflow de release genera `UsageTracker-x.y.z.dmg` y lo adjunta a la release de GitHub. Para instalarlo:
+
+1. Descarga el DMG de la última release.
+2. Ábrelo y arrastra **Usage Tracker** a **Aplicaciones**.
+3. La app está firmada en modo ad-hoc, así que macOS puede mostrar el aviso de desarrollador no identificado. En ese caso:
+   - clic derecho en la app → **Abrir** → **Abrir**, o
+   - ejecuta:
+     ```bash
+     xattr -cr "/Applications/Usage Tracker.app"
+     ```
+
+El DMG no se guarda en el repositorio; se publica como asset de la release.
+
+## Releases automáticas
+
+El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
+
+Para que cualquiera pueda descargar el DMG, el repositorio (o al menos sus releases) debe ser público.
+
 ## Planes de suscripción
 
 | Proveedor | Cómo se detecta | Comportamiento |
