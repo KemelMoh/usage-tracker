@@ -170,6 +170,12 @@ swift run UsageTrackerSelfTest
 
 Ejecuta 146 comprobaciones sobre previsiones, alertas, fusión de historial, precios dinámicos, catálogo de modelos, recomendaciones, detección de planes, formato y persistencia. No toca credenciales ni red.
 
+## Licencia
+
+El código de Usage Tracker se distribuye bajo la licencia **MIT**. Consulta [LICENSE](LICENSE).
+
+Los logotipos e iconos de Claude, GitHub Copilot y OpenCode son marcas de sus respectivos propietarios y **no** están cubiertos por la licencia MIT. Se usan únicamente para identificar a cada proveedor. Consulta [Resources/ProviderIcons/README.md](Resources/ProviderIcons/README.md).
+
 ## Uso
 
-Proyecto personal. Úsalo bajo tu responsabilidad y respeta los términos de cada proveedor.
+Úsalo bajo tu responsabilidad y respeta los términos de cada proveedor.

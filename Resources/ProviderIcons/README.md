@@ -5,4 +5,4 @@
 - `opencode.png`: icono de la app OpenCode, vía [opencode.ai](https://opencode.ai). Marca de OpenCode/Anomaly.
 - `claude-menu.png`, `copilot-menu.png`, `opencode-menu.png`: versiones monocromas para la barra de menús, con los detalles en transparencia para que macOS las adapte al tema claro u oscuro.
 
-Los nombres y logotipos pertenecen a sus propietarios. Se usan únicamente para identificar cada proveedor dentro de la app.
+Los nombres y logotipos pertenecen a sus propietarios. Se usan únicamente para identificar cada proveedor dentro de la app. No están cubiertos por la licencia MIT del código.
