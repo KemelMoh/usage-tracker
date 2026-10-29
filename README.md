@@ -105,7 +105,8 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 
 ## Credenciales
 
-- Las claves manuales se guardan en el **Keychain** bajo el servicio `dev.kemel.usagetracker`, una entrada por proveedor.
+- Las claves manuales **que pegues** se guardan en el **Keychain** bajo el servicio `dev.kemel.usagetracker`, una entrada por proveedor (`claude`, `copilot`, `opencode-go`). Si no has pegado ninguna, no existe ninguna entrada.
+- Las credenciales **detectadas** no se copian a ese servicio: Claude Code usa su propio elemento `Claude Code-credentials`, Copilot usa `gh auth token` y OpenCode usa `~/.local/share/opencode/auth.json`.
 - En **Suscripciones**, dentro de la tarjeta de cada proveedor, puedes pegar una clave para sustituir la detectada, borrarla o probar la conexión.
 - Nunca se muestran completas en la interfaz, los logs ni los exports.
 - El export incluye ajustes, historial y alertas, pero **no** claves ni tokens.
