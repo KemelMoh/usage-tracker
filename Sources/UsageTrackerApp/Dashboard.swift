@@ -121,7 +121,7 @@ struct OverviewView: View {
                 }
 
                 MetricCard(
-                    title: "Valor de uso · 30 días",
+                    title: "Valor de uso",
                     value: Format.money(model.totalUsageValue, settings: model.settings),
                     subtitle: "estimado, no facturado",
                     symbol: "chart.line.uptrend.xyaxis",
@@ -200,7 +200,7 @@ struct OverviewView: View {
                     }
                 }
 
-                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos. No es una factura. Copilot se valora a 0,01 $ por AI credit.")
+                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos, en los últimos 30 días. En Copilot son los AI credits consumidos en el ciclo de cuota actual, a 0,01 $ cada uno. No es una factura.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +262,7 @@ struct ValueSummaryCard: View {
                 Divider()
                     .padding(.top, 2)
 
-                Text("Claude y OpenCode: tokens × tarifas de models.dev. Copilot: AI credits × 0,01 $.")
+                Text("Claude y OpenCode: tokens × tarifas de models.dev, últimos 30 días. Copilot: AI credits × 0,01 $, consumed en el ciclo de cuota actual.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)

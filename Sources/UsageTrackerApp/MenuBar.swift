@@ -238,7 +238,7 @@ struct PopoverView: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             if model.settings.showEstimates {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Valor de uso · 30 d")
+                    Text("Valor de uso")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Text(Format.money(model.totalUsageValue, settings: model.settings))

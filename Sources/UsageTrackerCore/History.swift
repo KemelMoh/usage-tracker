@@ -83,6 +83,17 @@ public enum CopilotHistoryMerger {
             creditsCumulative: cumulative
         )
     }
+
+    /// Valor de uso de Copilot en USD.
+    ///
+    /// Se usa el acumulado de AI credits del ciclo de cuota, no el historial
+    /// diario: la API no expone el detalle por dia, asi que la serie solo
+    /// empieza a tener datos desde que la app esta abierta y summingarla
+    /// dejaria fuera casi todo el consumo.
+    public static func usageValue(snapshot: ProviderSnapshot?) -> Double {
+        guard let credits = snapshot?.creditsUsed else { return 0 }
+        return credits * PricingCatalog.copilotCreditUSD
+    }
 }
 
 // MARK: - Merge

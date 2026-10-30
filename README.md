@@ -101,7 +101,7 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 |---|---|
 | **Panel compacto** | Al hacer clic en el icono se abre el panel, con pestañas **Uso** y **Modelos**, refresco y engranaje de ajustes. |
 | **Cuota actual** | Ventanas de uso de cada proveedor (5 h, semanal, mensual…), porcentaje consumido, cuenta atrás hasta el reinicio y previsión de consumo al final de la ventana. |
-| **Valor de uso a 30 días** | Coste estimado a partir de los tokens y las tarifas públicas. En Copilot, AI credits × 0,01 USD. |
+| **Valor de uso** | Coste estimado. En Claude y OpenCode, los tokens de los últimos 30 días por las tarifas públicas. En Copilot, los AI credits del ciclo de cuota actual. |
 | **Catálogo de modelos** | Contexto, precios de entrada/salida, caché y capacidad de razonamiento o herramientas. Combina el listado en vivo de OpenCode Go con los precios de `models.dev`. Los modelos con tarifa 0 se marcan con **Gratis**. |
 | **Recomendaciones (beta)** | 3 modelos distintos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M que dependen del proveedor. Solo modelos con precio publicado, no gratuitos, no deprecated y de los últimos 6 meses. |
 | **Plan y precio automáticos** | Claude (sesión de Claude Code) y Copilot (cuenta de GitHub) detectan su plan. Lo detectado no sobrescribe lo que el usuario ajusta a mano. |
@@ -124,7 +124,7 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 | Historial Claude | `~/.claude/stats-cache.json` + transcripciones `~/.claude/projects/**/*.jsonl` | — | Solo se leen los campos de uso (`usage`, `model`, `timestamp`), no el contenido de los mensajes. |
 | Historial OpenCode | `~/.local/share/opencode/opencode.db` (SQLite, solo lectura) | — | Consulta la tabla `session` filtrando `opencode-go`. |
 
-El **valor de uso** de 30 días suma el coste estimado de los tokens consumidos por los proveedores activos. En Claude y OpenCode se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot se multiplican los AI credits consumidos por 0,01 USD, que es lo que vale cada credit desde que GitHub sustituyó los premium requests el 1 de junio de 2026. **Son estimaciones, no facturas.**
+El **valor de uso** suma el coste estimado de los proveedores activos. En Claude y OpenCode cubre los **últimos 30 días** y se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot cubre el **ciclo de cuota actual** y se calcula multiplicando los AI credits consumidos por 0,01 USD, que es lo que vale cada credit desde que GitHub sustituyó los premium requests el 1 de junio de 2026. **Son estimaciones, no facturas.**
 
 El catálogo de modelos se guarda en el estado local y se actualiza al arrancar si tiene más de 24 horas, al pulsar refrescar en la pestaña **Modelos** o al abrir el dashboard. Si `models.dev` no responde, se conserva el último catálogo válido.
 

@@ -216,29 +216,16 @@ final class AppModel: ObservableObject {
 
     func usageValue(for provider: ProviderID) -> Double {
         if provider == .copilot {
-            // Los AI credits del ciclo se convierten en consumo diario
-            // restando el acumulado del dia anterior, y se valoran a 0,01 USD.
-            return copilotDailyCredits * PricingCatalog.copilotCreditUSD
+            // El acumulado de AI credits del ciclo es el unico dato fiable
+            // del consumo. El historial diario solo se llena desde que la app
+            // esta abierta, asi que no sirve para el valor de uso.
+            return CopilotHistoryMerger.usageValue(snapshot: snapshots[.copilot])
         }
 
         let cutoff = DateUtils.monthsAgo(1)
         return (history[provider] ?? [])
             .filter { $0.date >= cutoff }
             .compactMap(\.costUSD)
-            .reduce(0, +)
-    }
-
-    /// AI credits consumidos por día en los últimos 30 días (solo Copilot).
-    ///
-    /// El consumo de cada dia ya se calcula y se guarda al crear el punto
-    /// diario, asi que aqui solo se suman los dias que tienen registro. Los
-    /// dias sin consumo no tienen registro y no aportan nada, igual que en
-    /// OpenCode con un dia sin sesiones.
-    var copilotDailyCredits: Double {
-        let cutoff = DateUtils.monthsAgo(1)
-        return (history[.copilot] ?? [])
-            .filter { $0.date >= cutoff }
-            .compactMap(\.creditsUsed)
             .reduce(0, +)
     }
 
@@ -251,7 +238,7 @@ final class AppModel: ObservableObject {
         let cutoff = DateUtils.monthsAgo(1)
         var values: [ProviderID: Double] = [:]
 
-        values[.copilot] = copilotDailyCredits * PricingCatalog.copilotCreditUSD
+        values[.copilot] = CopilotHistoryMerger.usageValue(snapshot: snapshots[.copilot])
 
         for (provider, entries) in history where provider != .copilot {
             var total = 0.0

@@ -1119,6 +1119,44 @@ let soloMigrado = [
 ].compactMap(\.creditsUsed).reduce(0, +)
 checkClose(soloMigrado, 0, "un dia migrado sin consumo diario no suma al valor")
 
+// El valor de uso de Copilot sale del acumulado del ciclo, no del historial
+// diario. La API no expone el detalle por dia, asi que sumar la serie dejaria
+// fuera casi todo el consumo.
+let cycleSnapshot = ProviderSnapshot(
+    provider: .copilot,
+    planName: "Business",
+    status: .ok,
+    windows: [QuotaWindow(
+        id: "credits",
+        label: "AI credits",
+        usedPercent: 94.7,
+        usedValue: 18930,
+        limitValue: 20000
+    )]
+)
+checkClose(
+    CopilotHistoryMerger.usageValue(snapshot: cycleSnapshot),
+    189.30,
+    "el valor de uso de Copilot es el acumulado del ciclo por 0,01 USD"
+)
+checkClose(
+    CopilotHistoryMerger.usageValue(snapshot: nil),
+    0,
+    "sin snapshot el valor de uso de Copilot es cero"
+)
+checkClose(
+    CopilotHistoryMerger.usageValue(
+        snapshot: ProviderSnapshot(
+            provider: .copilot,
+            planName: "Business",
+            status: .ok,
+            windows: [QuotaWindow(id: "credits", label: "AI credits", usedPercent: 0)]
+        )
+    ),
+    0,
+    "un snapshot sin credits consumidos vale cero"
+)
+
 // MARK: - Actualizaciones
 
 section("Actualizaciones")
