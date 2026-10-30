@@ -290,7 +290,7 @@ final class AppModel: ObservableObject {
 
     var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.2.2"
+            ?? "0.2.3"
     }
 
     func checkForUpdatesIfNeeded() async {

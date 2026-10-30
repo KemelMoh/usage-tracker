@@ -151,7 +151,7 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 
 - Claude: se combinan `stats-cache.json` y las transcripciones; las transcripciones mandan cuando hay datos del mismo día.
 - OpenCode: agregado diario por modelo desde su base SQLite.
-- Copilot: como la API no ofrece histórico por usuario, la app guarda un punto por día. La API solo expone el acumulado de AI credits del ciclo, así que el consumo de cada día se obtiene restando el acumulado del día anterior.
+- Copilot: como la API no ofrece histórico por usuario, la app guarda un punto por día. La API solo expone el acumulado de AI credits del ciclo, así que el consumo de cada día se obtiene restando el acumulado del día anterior. Los días en los que el acumulado no cambia no se registran, igual que OpenCode con un día sin sesiones.
 - Se conservan 180 días. La previsión usa el porcentaje consumido, el tiempo transcurrido y la duración de la ventana; la confianza es baja al principio de la ventana y sube con el tiempo.
 
 ## 🔐 Datos y credenciales
@@ -210,8 +210,8 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
@@ -219,7 +219,7 @@ Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. Tambié
 Las notas de la release se generan solas a partir de los commits, agrupadas por tipo. Para verlas antes de publicar:
 
 ```bash
-./scripts/release-notes.sh 0.2.2
+./scripts/release-notes.sh 0.2.3
 ```
 
 Si el mensaje de un commit empieza por `feat:`, `fix:`, `perf:` o `docs:`, el commit va a la sección correspondiente. Los que no llevan prefijo se clasifican por palabras clave.
