@@ -118,6 +118,34 @@ public enum DateUtils {
         return dayFormatter.date(from: value)
     }
 
+    /// Convierte una fecha local del backend (`yyyy-MM-dd` o
+    /// `yyyy-MM-dd HH:mm:ss[.ffffff]`) sin asumir zona UTC.
+    public static func parseLocalDateTime(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        // Algunas respuestas envían un instante ISO-8601 con zona, otras una
+        // fecha/hora local sin sufijo.
+        if value.contains("T"), let isoDate = parseISO(value) { return isoDate }
+        let parts = value.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+
+        var components = DateComponents(
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        )
+        let time = value.dropFirst(min(11, value.count))
+            .split(separator: ".", maxSplits: 1)
+            .first?
+            .split(separator: ":")
+            .compactMap { Int($0) } ?? []
+        if time.count == 3 {
+            components.hour = time[0]
+            components.minute = time[1]
+            components.second = time[2]
+        }
+        return Calendar.current.date(from: components)
+    }
+
     public static func dayKey(_ date: Date) -> String {
         dateLock.lock()
         defer { dateLock.unlock() }

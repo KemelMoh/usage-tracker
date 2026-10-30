@@ -80,6 +80,11 @@ public enum StateStore {
             if subscription.planName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 subscription.planName = subscription.id.defaultPlanName
             }
+            if subscription.id == .liteLLM,
+               subscription.planName.caseInsensitiveCompare("Corporate") == .orderedSame,
+               subscription.priceSource == .auto {
+                subscription.planName = subscription.id.defaultPlanName
+            }
             subscription.monthlyPriceUSD = max(0, subscription.monthlyPriceUSD)
 
             // Migración desde la versión 1: si el plan y el precio coinciden con
@@ -98,6 +103,18 @@ public enum StateStore {
         let order = Dictionary(uniqueKeysWithValues: ProviderID.allCases.enumerated().map { ($1, $0) })
         subscriptions.sort { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
         normalized.settings.subscriptions = subscriptions
+
+        // Migrate cooldown keys for LiteLLM alerts when restoring earlier data.
+        let legacyAlertPrefix = ProviderID.legacyLiteLLMIdentifier + "|"
+        let legacyAlertEntries = normalized.alertKeys.filter { $0.key.hasPrefix(legacyAlertPrefix) }
+        for (key, date) in legacyAlertEntries {
+            let suffix = key.dropFirst(legacyAlertPrefix.count)
+            let migratedKey = "\(ProviderID.liteLLM.rawValue)|\(suffix)"
+            if normalized.alertKeys[migratedKey].map({ $0 < date }) ?? true {
+                normalized.alertKeys[migratedKey] = date
+            }
+            normalized.alertKeys.removeValue(forKey: key)
+        }
 
         normalized.settings.refreshMinutes = max(1, normalized.settings.refreshMinutes)
         if normalized.settings.menuBarMode == .monthlyCost {

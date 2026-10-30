@@ -10,6 +10,9 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
     public var outputPerMillion: Double?
     public var cacheReadPerMillion: Double?
     public var cacheWritePerMillion: Double?
+    /// Public list price before LiteLLM deployment/campaign pricing.
+    public var listInputPerMillion: Double?
+    public var listOutputPerMillion: Double?
     public var contextWindow: Int?
     public var maxOutput: Int?
     public var reasoning: Bool
@@ -41,6 +44,7 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
 
     /// Modelo con tarifa publicada de 0 USD por millón de tokens.
     public var isFree: Bool {
+        if let discount, discount >= 0.995 { return true }
         guard let inputPerMillion, let outputPerMillion,
               inputPerMillion == 0, outputPerMillion == 0 else {
             return false
@@ -48,6 +52,21 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
         if let cacheReadPerMillion, cacheReadPerMillion != 0 { return false }
         if let cacheWritePerMillion, cacheWritePerMillion != 0 { return false }
         return true
+    }
+
+    /// Current proxy price reduction versus the public list price. Returns nil
+    /// when the difference is below 0.5 %, matching the account portal's campaign tag.
+    public var discount: Double? {
+        let pairs = [
+            (inputPerMillion, listInputPerMillion),
+            (outputPerMillion, listOutputPerMillion)
+        ]
+        guard let (current, list) = pairs.first(where: { $0.0 != nil && ($0.1 ?? 0) > 0 })
+            .map({ ($0.0!, $0.1!) }),
+              list > current * 1.005 + 1e-9 else {
+            return nil
+        }
+        return min(max(1 - current / list, 0), 1)
     }
 
     public init(
@@ -58,6 +77,8 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
         outputPerMillion: Double? = nil,
         cacheReadPerMillion: Double? = nil,
         cacheWritePerMillion: Double? = nil,
+        listInputPerMillion: Double? = nil,
+        listOutputPerMillion: Double? = nil,
         contextWindow: Int? = nil,
         maxOutput: Int? = nil,
         reasoning: Bool = false,
@@ -75,6 +96,8 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
         self.outputPerMillion = outputPerMillion
         self.cacheReadPerMillion = cacheReadPerMillion
         self.cacheWritePerMillion = cacheWritePerMillion
+        self.listInputPerMillion = listInputPerMillion
+        self.listOutputPerMillion = listOutputPerMillion
         self.contextWindow = contextWindow
         self.maxOutput = maxOutput
         self.reasoning = reasoning
@@ -88,12 +111,23 @@ public struct CatalogModel: Codable, Identifiable, Hashable, Sendable {
 }
 
 public struct ModelCatalog: Codable, Sendable {
+    /// Incremented when persisted catalog entries gain new enrichments such as
+    /// LiteLLM deployment/list prices and recommendation metadata.
+    public static let currentSourceVersion = 2
+
     public var fetchedAt: Date
     public var models: [CatalogModel]
+    /// Optional for backwards-compatible decoding of older persisted catalogs.
+    public var sourceVersion: Int?
 
-    public init(fetchedAt: Date = Date(), models: [CatalogModel] = []) {
+    public init(
+        fetchedAt: Date = Date(),
+        models: [CatalogModel] = [],
+        sourceVersion: Int? = currentSourceVersion
+    ) {
         self.fetchedAt = fetchedAt
         self.models = models
+        self.sourceVersion = sourceVersion
     }
 
     public var isEmpty: Bool { models.isEmpty }
@@ -170,6 +204,92 @@ public enum ModelsDevParser {
         }
     }
 
+    /// Adds provider-neutral metadata from models.dev to LiteLLM deployment
+    /// models. Price/tier come from the proxy; this lookup only contributes the
+    /// model's release/status/context information used by recommendations.
+    public static func enrichLiteLLMModels(
+        _ models: [CatalogModel],
+        from data: Data
+    ) -> [CatalogModel] {
+        guard let providers = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
+            return models
+        }
+
+        var metadataByID: [String: [String: Any]] = [:]
+        for (providerID, providerValue) in providers {
+            guard let rawModels = providerValue["models"] as? [String: [String: Any]] else { continue }
+            for (key, value) in rawModels {
+                let id = value["id"] as? String ?? key
+                let keys = Set([key, id].flatMap { modelID in
+                    let lower = modelID.lowercased()
+                    return [lower, lower.replacingOccurrences(of: "@", with: "-")]
+                })
+                for modelKey in keys {
+                    if let existing = metadataByID[modelKey],
+                       metadataRank(provider: providerID, modelID: modelKey) <= metadataRank(
+                           provider: metadataProvider(of: existing),
+                           modelID: modelKey
+                       ) {
+                        continue
+                    }
+                    metadataByID[modelKey] = value.merging(["_models_dev_provider": providerID]) { _, new in new }
+                }
+            }
+        }
+
+        return models.map { model in
+            guard model.provider == .liteLLM,
+                  let metadata = metadata(for: model.modelID, in: metadataByID) else {
+                return model
+            }
+
+            var enriched = model
+            if let name = metadata["name"] as? String, !name.isEmpty {
+                enriched.name = model.modelID.hasSuffix("-vertex") ? "\(name) (Vertex)" : name
+            }
+            enriched.reasoning = metadata["reasoning"] as? Bool ?? enriched.reasoning
+            enriched.toolCall = metadata["tool_call"] as? Bool ?? enriched.toolCall
+            enriched.releaseDate = metadata["release_date"] as? String
+            enriched.lastUpdated = metadata["last_updated"] as? String
+            enriched.status = metadata["status"] as? String
+            enriched.canonicalModelID = metadata["canonical_model_id"] as? String
+            if let limit = metadata["limit"] as? [String: Any] {
+                enriched.contextWindow = enriched.contextWindow ?? (limit["context"] as? NSNumber)?.intValue
+                enriched.maxOutput = enriched.maxOutput ?? (limit["output"] as? NSNumber)?.intValue
+            }
+            return enriched
+        }
+    }
+
+    private static func metadataProvider(of metadata: [String: Any]) -> String {
+        metadata["_models_dev_provider"] as? String ?? ""
+    }
+
+    private static func metadata(for modelID: String, in metadata: [String: [String: Any]]) -> [String: Any]? {
+        let base = modelID.hasSuffix("-vertex")
+            ? String(modelID.dropLast("-vertex".count))
+            : modelID
+        let short = base.split(separator: "/").last.map(String.init) ?? base
+        let keys = [base, short].map { $0.lowercased() }
+        return keys.lazy.compactMap { metadata[$0] }.first
+    }
+
+    private static func metadataRank(provider: String, modelID: String) -> Int {
+        let id = modelID.split(separator: "/").last.map(String.init)?.lowercased() ?? modelID
+        let preferred: String?
+        if id.hasPrefix("claude") { preferred = "anthropic" }
+        else if id.hasPrefix("gpt") || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4") { preferred = "openai" }
+        else if id.hasPrefix("gemini") || id.hasPrefix("gemma") || id.hasPrefix("veo") { preferred = "google" }
+        else if id.hasPrefix("llama") { preferred = "meta" }
+        else if id.hasPrefix("mistral") || id.hasPrefix("codestral") { preferred = "mistral" }
+        else if id.hasPrefix("deepseek") { preferred = "deepseek" }
+        else if id.hasPrefix("qwen") { preferred = "qwen" }
+        else if id.hasPrefix("glm") { preferred = "zhipu" }
+        else if id.hasPrefix("kimi") { preferred = "moonshot" }
+        else { preferred = nil }
+        return provider == preferred ? 0 : 1
+    }
+
     private struct DynamicCodingKey: CodingKey {
         var stringValue: String
         var intValue: Int?
@@ -233,6 +353,11 @@ public enum ModelsDevClient {
     public static let endpoint = URL(string: "https://models.dev/api.json?type=all")!
 
     public static func fetchModels() async throws -> [CatalogModel] {
+        let data = try await fetchData()
+        return try ModelsDevParser.parse(data: data)
+    }
+
+    public static func fetchData() async throws -> Data {
         let (data, _) = try await HTTPClient.shared.get(
             url: endpoint,
             headers: [
@@ -240,7 +365,7 @@ public enum ModelsDevClient {
                 "User-Agent": "UsageTracker/0.2"
             ]
         )
-        return try ModelsDevParser.parse(data: data)
+        return data
     }
 }
 
@@ -315,26 +440,37 @@ public enum ModelCatalogService {
     }
 
     public static func fetch() async throws -> ModelCatalog {
-        async let devTask = ModelsDevClient.fetchModels()
+        async let devDataTask = ModelsDevClient.fetchData()
         async let liveTask = OpenCodeModelsClient().fetchIDs()
+        async let liteLLMTask = LiteLLMModelsClient.fetchModels()
 
-        let devModels = (try? await devTask) ?? []
+        let devData = try? await devDataTask
+        let devModels = devData.flatMap { try? ModelsDevParser.parse(data: $0) } ?? []
         let liveIDs = (try? await liveTask) ?? []
+        let liteLLMModels = (try? await liteLLMTask) ?? []
+        let enrichedLiteLLMModels = devData.map {
+            ModelsDevParser.enrichLiteLLMModels(liteLLMModels, from: $0)
+        } ?? liteLLMModels
 
-        // models.dev es la fuente principal: sin ella no habría precios ni
-        // modelos de Claude/Copilot, así que se conserva el catálogo anterior.
-        guard !devModels.isEmpty else {
+        // models.dev es la fuente principal del catálogo general. Si falla,
+        // los catálogos en vivo de OpenCode y LiteLLM aún son útiles.
+        guard !devModels.isEmpty || !liveIDs.isEmpty || !enrichedLiteLLMModels.isEmpty else {
             throw ProviderError.network("No se pudo cargar el catálogo de precios de models.dev.")
         }
 
-        return makeCatalog(devModels: devModels, openCodeLiveIDs: liveIDs)
+        return makeCatalog(
+            devModels: devModels,
+            openCodeLiveIDs: liveIDs,
+            liteLLMModels: enrichedLiteLLMModels
+        )
     }
 
     /// Usa el catálogo de models.dev como fuente de precios y el listado en vivo
     /// de OpenCode Go como fuente de disponibilidad.
     public static func makeCatalog(
         devModels: [CatalogModel],
-        openCodeLiveIDs: [String]
+        openCodeLiveIDs: [String],
+        liteLLMModels: [CatalogModel] = []
     ) -> ModelCatalog {
         var result: [CatalogModel] = []
 
@@ -372,6 +508,7 @@ public enum ModelCatalogService {
         }
 
         result.append(contentsOf: devModels.filter { $0.provider != .opencodeGo })
+        result.append(contentsOf: liteLLMModels.filter { $0.provider == .liteLLM })
         return ModelCatalog(models: sorted(result))
     }
 

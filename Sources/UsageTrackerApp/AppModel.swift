@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogError: String?
     @Published private(set) var catalogLastAttempt: Date?
+    @Published private(set) var liteLLMSSOStatus: LiteLLMSSOStatus = .unknown
     /// Recomendaciones ya calculadas para el catálogo actual. Se rehacen solo
     /// cuando cambia el catálogo, no en cada pasada de render de la interfaz.
     @Published private(set) var recommendationIndex: RecommendationIndex = .empty
@@ -73,6 +74,7 @@ final class AppModel: ObservableObject {
     private var alertKeys: [String: Date] = [:]
     private var timer: Timer?
     private var saveWorkItem: DispatchWorkItem?
+    private let liteLLMSession = LiteLLMSession()
 
     init() {
         let state = StateStore.load()
@@ -89,7 +91,8 @@ final class AppModel: ObservableObject {
         self.modelCatalog = state.catalog.map { catalog in
             ModelCatalog(
                 fetchedAt: catalog.fetchedAt,
-                models: ModelCatalogService.sorted(catalog.models)
+                models: ModelCatalogService.sorted(catalog.models),
+                sourceVersion: catalog.sourceVersion
             )
         }
         self.recommendationIndex = modelRecommendationsEnabled
@@ -170,6 +173,15 @@ final class AppModel: ObservableObject {
     private var catalogNeedsMetadata: Bool {
         guard let models = modelCatalog?.models, !models.isEmpty else { return false }
         return models.allSatisfy { $0.releaseDate == nil && $0.lastUpdated == nil }
+    }
+
+    private var catalogNeedsLiteLLMModels: Bool {
+        guard let models = modelCatalog?.models else { return true }
+        return !models.contains(where: { $0.provider == .liteLLM })
+    }
+
+    private var catalogNeedsEnrichment: Bool {
+        modelCatalog?.sourceVersion != ModelCatalog.currentSourceVersion
     }
 
     var catalogModels: [CatalogModel] {
@@ -420,7 +432,9 @@ final class AppModel: ObservableObject {
         if !force {
             if let fetchedAt = modelCatalog?.fetchedAt,
                Date().timeIntervalSince(fetchedAt) < 24 * 3_600,
-               !catalogNeedsMetadata {
+               !catalogNeedsMetadata,
+               !catalogNeedsLiteLLMModels,
+               !catalogNeedsEnrichment {
                 return
             }
             // Evita reintentar en cada refresco si el catálogo acaba de fallar.
@@ -459,9 +473,25 @@ final class AppModel: ObservableObject {
         // desactivado, no se toca su elemento del Keychain ni se pide permiso.
         let activeProviders = self.activeProviders
         let activeSet = Set(activeProviders)
-        let credentials = await Task.detached(priority: .userInitiated) {
-            CredentialResolver.resolve(for: activeSet)
+        var credentials = await Task.detached(priority: .userInitiated) {
+            CredentialResolver.resolve(for: activeSet.subtracting([.liteLLM]))
         }.value
+
+        let liteLLMHasSession: Bool
+        if activeSet.contains(.liteLLM) {
+            liteLLMHasSession = await liteLLMSession.authCookie() != nil
+        } else {
+            liteLLMHasSession = false
+        }
+        if activeSet.contains(.liteLLM) {
+            if liteLLMHasSession {
+                credentials.statuses[.liteLLM] = .notRequired
+            } else {
+                let fallbackCredential = await resolveLiteLLMCredential()
+                credentials.liteLLMKey = fallbackCredential.key
+                credentials.statuses[.liteLLM] = fallbackCredential.status
+            }
+        }
         credentialStatus = credentials.statuses
 
         // Claude revela el plan en su propia sesión; Copilot, en la respuesta de
@@ -473,8 +503,21 @@ final class AppModel: ObservableObject {
         let openCodePlan = subscription(for: .opencodeGo).planName
         let copilotPlan = subscription(for: .copilot).planName
         let claudePlan = subscription(for: .claude).planName
+        let litellmPlan = subscription(for: .liteLLM).planName
 
-        let fetchedSnapshots = await withTaskGroup(of: ProviderSnapshot.self) { group in
+        let liteLLMPlatformTask: Task<LiteLLMUsageReport, Error>?
+        if liteLLMHasSession {
+            liteLLMPlatformTask = Task {
+                try await LiteLLMPlatformClient(authStore: liteLLMSession).report()
+            }
+        } else {
+            liteLLMPlatformTask = nil
+            if activeSet.contains(.liteLLM) {
+                liteLLMSSOStatus = .signedOut
+            }
+        }
+
+        var fetchedSnapshots = await withTaskGroup(of: ProviderSnapshot.self) { group in
             if activeSet.contains(.opencodeGo) {
                 group.addTask {
                     await OpenCodeGoClient().fetch(
@@ -499,12 +542,58 @@ final class AppModel: ObservableObject {
                     )
                 }
             }
-
             var results: [ProviderSnapshot] = []
             for await snapshot in group {
                 results.append(snapshot)
             }
             return results
+        }
+
+        var liteLLMHistory: [DailyUsage] = []
+        if activeSet.contains(.liteLLM) {
+            if let liteLLMPlatformTask {
+                do {
+                    let report = try await liteLLMPlatformTask.value
+                    liteLLMSSOStatus = .signedIn
+                    credentials.statuses[.liteLLM] = .notRequired
+                    credentialStatus[.liteLLM] = .notRequired
+                    liteLLMHistory = report.daily
+                    applyDetectedPlan(.liteLLM, planName: report.tier)
+                    fetchedSnapshots.append(liteLLMSnapshot(from: report))
+                } catch {
+                    if let platformError = error as? LiteLLMPlatformError,
+                       case .needsLogin = platformError {
+                        liteLLMSSOStatus = .needsLogin
+                    } else {
+                        liteLLMSSOStatus = .signedIn
+                    }
+                    if credentials.liteLLMKey == nil {
+                        let fallbackCredential = await resolveLiteLLMCredential()
+                        credentials.liteLLMKey = fallbackCredential.key
+                        credentials.statuses[.liteLLM] = fallbackCredential.status
+                        credentialStatus[.liteLLM] = fallbackCredential.status
+                    }
+                    let proxySnapshot = await LiteLLMClient().fetch(
+                        apiKey: credentials.liteLLMKey,
+                        fallbackPlan: litellmPlan
+                    )
+                    fetchedSnapshots.append(
+                        proxySnapshot.status == .ok
+                            ? proxySnapshot
+                            : liteLLMFailureSnapshot(error: error, fallbackPlan: litellmPlan)
+                    )
+                }
+            } else {
+                let proxySnapshot = await LiteLLMClient().fetch(
+                    apiKey: credentials.liteLLMKey,
+                    fallbackPlan: litellmPlan
+                )
+                if proxySnapshot.status == .ok {
+                    fetchedSnapshots.append(proxySnapshot)
+                } else {
+                    fetchedSnapshots.append(liteLLMFailureSnapshot(error: nil, fallbackPlan: litellmPlan))
+                }
+            }
         }
 
         if let copilotSnapshot = fetchedSnapshots.first(where: { $0.provider == .copilot }),
@@ -549,6 +638,13 @@ final class AppModel: ObservableObject {
             )
         }
 
+        if !liteLLMHistory.isEmpty {
+            history[.liteLLM] = HistoryMerger.merge(
+                existing: history[.liteLLM] ?? [],
+                incoming: liteLLMHistory
+            )
+        }
+
         if activeSet.contains(.copilot),
            let copilot = snapshots[.copilot],
            copilot.status == .ok,
@@ -558,7 +654,9 @@ final class AppModel: ObservableObject {
 
         for provider in activeProviders {
             guard var snapshot = snapshots[provider] else { continue }
-            snapshot.models = topModels(for: provider)
+            if provider != .liteLLM || snapshot.models.isEmpty {
+                snapshot.models = topModels(for: provider)
+            }
             snapshots[provider] = snapshot
         }
 
@@ -595,6 +693,7 @@ final class AppModel: ObservableObject {
         case .opencodeGo: windowID = "monthly"
         case .copilot: windowID = "credits"
         case .claude: windowID = nil
+        case .liteLLM: windowID = "budget"
         }
 
         guard let windowID,
@@ -658,8 +757,42 @@ final class AppModel: ObservableObject {
 
     func clearCredential(provider: ProviderID) {
         KeychainStore.delete(account: provider.rawValue)
+        if provider == .liteLLM {
+            KeychainStore.delete(account: ProviderID.legacyLiteLLMIdentifier)
+        }
         credentialStatus[provider] = .missing
         Task { await refresh() }
+    }
+
+    func signInLiteLLM() {
+        guard EndpointConfiguration.accountPortalBaseURL != nil else {
+            liteLLMSSOStatus = .needsLogin
+            lastError = "Falta la configuración privada del portal de cuenta LiteLLM."
+            return
+        }
+        liteLLMSSOStatus = .signingIn
+        liteLLMSession.presentLogin(onSuccess: { [weak self] in
+            guard let self else { return }
+            self.liteLLMSSOStatus = .signedIn
+            Task { await self.refresh() }
+        }, onClose: { [weak self] in
+            guard let self, self.liteLLMSSOStatus == .signingIn else { return }
+            Task { @MainActor in
+                self.liteLLMSSOStatus = await self.liteLLMSession.authCookie() == nil
+                    ? .signedOut
+                    : .unknown
+            }
+        })
+    }
+
+    func signOutLiteLLM() {
+        Task { @MainActor in
+            await liteLLMSession.signOut()
+            liteLLMSSOStatus = .signedOut
+            if subscription(for: .liteLLM).isActive {
+                await refresh()
+            }
+        }
     }
 
     func testConnection(provider: ProviderID) async -> String {
@@ -696,7 +829,119 @@ final class AppModel: ObservableObject {
                 return "Conexión correcta. \(window.label): \(Format.percent(window.usedPercent))."
             }
             return snapshot.errorMessage ?? "No se pudo conectar."
+        case .liteLLM:
+            if await liteLLMSession.authCookie() != nil {
+                do {
+                    let report = try await LiteLLMPlatformClient(authStore: liteLLMSession).report()
+                    liteLLMSSOStatus = .signedIn
+                    applyDetectedPlan(.liteLLM, planName: report.tier)
+                    return "Conexión correcta con LiteLLM. Plan \(report.tier): \(NumberFormat.usd(report.spend)) este mes."
+                } catch {
+                    if let platformError = error as? LiteLLMPlatformError,
+                       case .needsLogin = platformError {
+                        liteLLMSSOStatus = .needsLogin
+                    }
+                }
+            }
+            let snapshot = await LiteLLMClient().fetch(
+                apiKey: credentials.liteLLMKey,
+                fallbackPlan: subscription(for: .liteLLM).planName
+            )
+            if snapshot.status == .ok, let window = snapshot.windows.first {
+                if window.isUnlimited {
+                    return "Conexión correcta. \(window.detail ?? "Presupuesto sin límite declarado.")."
+                }
+                return "Conexión correcta. \(window.label): \(Format.percent(window.usedPercent)). \(window.detail ?? "")"
+            }
+            return snapshot.errorMessage ?? "No se pudo conectar."
         }
+    }
+
+    private func liteLLMSnapshot(from report: LiteLLMUsageReport) -> ProviderSnapshot {
+        let detail: String
+        if let budget = report.budget, budget > 0 {
+            detail = "\(NumberFormat.usd(report.spend)) de \(NumberFormat.usd(budget))"
+        } else {
+            detail = "\(NumberFormat.usd(report.spend)) este mes"
+        }
+        let window = QuotaWindow(
+            id: "budget",
+            label: "Presupuesto · mes actual",
+            usedPercent: report.usedPercent,
+            resetsAt: report.budgetResetAt,
+            windowDuration: liteLLMWindowDuration(for: report),
+            detail: detail,
+            isUnlimited: report.budget == nil || report.budget == 0,
+            usedValue: report.spend,
+            limitValue: report.budget
+        )
+        return ProviderSnapshot(
+            provider: .liteLLM,
+            fetchedAt: report.dataUpdatedAt ?? Date(),
+            planName: report.tier,
+            status: .ok,
+            windows: [window],
+            models: report.models,
+            accountLabel: report.accountLabel
+        )
+    }
+
+    private func liteLLMWindowDuration(for report: LiteLLMUsageReport) -> TimeInterval {
+        guard let duration = report.budgetDuration?.lowercased(), !duration.isEmpty else {
+            return 30 * 86_400
+        }
+
+        let reset = report.budgetResetAt
+        let calendar = Calendar.current
+        if duration.hasSuffix("mo"), let months = Int(duration.dropLast(2)), months > 0 {
+            if let reset,
+               let start = calendar.date(byAdding: .month, value: -months, to: reset) {
+                return reset.timeIntervalSince(start)
+            }
+            let components = calendar.dateComponents([.year, .month], from: Date())
+            if let start = calendar.date(from: components),
+               let end = calendar.date(byAdding: .month, value: months, to: start) {
+                return end.timeIntervalSince(start)
+            }
+        }
+        if duration.hasSuffix("d"), let days = Int(duration.dropLast()), days > 0 {
+            return TimeInterval(days) * 86_400
+        }
+        if duration.hasSuffix("w"), let weeks = Int(duration.dropLast()), weeks > 0 {
+            return TimeInterval(weeks) * 7 * 86_400
+        }
+        if duration.hasSuffix("h"), let hours = Int(duration.dropLast()), hours > 0 {
+            return TimeInterval(hours) * 3_600
+        }
+        return 30 * 86_400
+    }
+
+    private func liteLLMFailureSnapshot(error: Error?, fallbackPlan: String) -> ProviderSnapshot {
+        let providerError: ProviderError
+        if let platformError = error as? LiteLLMPlatformError {
+            switch platformError {
+            case .needsLogin:
+                providerError = .auth("La sesión LiteLLM requiere iniciar sesión de nuevo.")
+            case .network(let message):
+                providerError = .network(message)
+            case .http(let status):
+                providerError = .http(status, "LiteLLM")
+            case .decoding(let message):
+                providerError = .decoding(message)
+            }
+        } else {
+            providerError = .missingCredential(
+                "Inicia sesión en LiteLLM o configura una clave del proxy en Suscripciones."
+            )
+        }
+        return .failure(provider: .liteLLM, planName: fallbackPlan, error: providerError)
+    }
+
+    private func resolveLiteLLMCredential() async -> (key: String?, status: CredentialStatus) {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            CredentialResolver.resolve(for: [.liteLLM])
+        }.value
+        return (resolved.liteLLMKey, resolved.statuses[.liteLLM] ?? .missing)
     }
 
     // MARK: - System integration
@@ -795,6 +1040,7 @@ final class AppModel: ObservableObject {
         for provider in ProviderID.allCases {
             KeychainStore.delete(account: provider.rawValue)
         }
+        KeychainStore.delete(account: ProviderID.legacyLiteLLMIdentifier)
         settings = .default
         snapshots = [:]
         history = [:]
@@ -807,7 +1053,11 @@ final class AppModel: ObservableObject {
         catalogError = nil
         catalogLastAttempt = nil
         lastError = nil
-        Task { await refresh() }
+        liteLLMSSOStatus = .signedOut
+        Task {
+            await liteLLMSession.signOut()
+            await refresh()
+        }
     }
 
     // MARK: - Persistence
@@ -853,7 +1103,7 @@ final class AppModel: ObservableObject {
     private static func decodeSnapshots(_ raw: [String: ProviderSnapshot]) -> [ProviderID: ProviderSnapshot] {
         var result: [ProviderID: ProviderSnapshot] = [:]
         for (key, value) in raw {
-            if let provider = ProviderID(rawValue: key) {
+            if let provider = ProviderID.persistedID(key) {
                 result[provider] = value
             }
         }
@@ -863,7 +1113,7 @@ final class AppModel: ObservableObject {
     private static func decodeHistory(_ raw: [String: [DailyUsage]]) -> [ProviderID: [DailyUsage]] {
         var result: [ProviderID: [DailyUsage]] = [:]
         for (key, value) in raw {
-            if let provider = ProviderID(rawValue: key) {
+            if let provider = ProviderID.persistedID(key) {
                 result[provider] = value
             }
         }

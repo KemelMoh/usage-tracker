@@ -55,6 +55,20 @@ public enum KeychainStore {
     public static let service = "dev.kemel.usagetracker"
 
     public static func read(account: String) -> String? {
+        read(service: service, account: account)
+    }
+
+    /// Lee un elemento genérico de cualquier servicio del Keychain.
+    ///
+    /// Se usa para credenciales que guardan otras apps, como la clave del
+    /// proxy de LiteLLM que guarda Claude Usage Tracker.
+    public static func read(service: String, account: String) -> String? {
+        readWithStatus(service: service, account: account).value
+    }
+
+    /// Igual que `read(service:account:)`, pero devuelve también el estado, para
+    /// poder distinguir "no existe" de "el usuario ha denegado el acceso".
+    public static func readWithStatus(service: String, account: String) -> (value: String?, status: OSStatus) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -65,8 +79,10 @@ public enum KeychainStore {
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard status == errSecSuccess, let data = item as? Data else {
+            return (nil, status)
+        }
+        return (String(data: data, encoding: .utf8), status)
     }
 
     public static func save(account: String, value: String) throws {
@@ -218,6 +234,115 @@ public enum GitHubCLI {
     }
 }
 
+// MARK: - LiteLLM
+
+/// Detecta la clave del proxy LiteLLM.
+///
+/// Se buscan tres fuentes, en este orden:
+/// 1. La configuración de Claude Code, si apunta al proxy LiteLLM.
+/// 2. Un `export ANTHROPIC_AUTH_TOKEN=` literal en el perfil del shell.
+/// 3. El Keychain de Claude Usage Tracker, que guarda la misma clave.
+public enum LiteLLMKeyLocator {
+    private static let trackerService = "com.claudeusage.tracker.litellm"
+    private static let trackerAccount = "litellm-api-key"
+    private static let shellProfiles = [".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile"]
+    private static let exportPrefix = "export ANTHROPIC_AUTH_TOKEN="
+
+    /// Si el usuario deniega el acceso al Keychain, macOS vuelve a preguntarlo
+    /// en cada intento. Se recuerda el fallo para no molestarlo en cada refresco.
+    private static let stateLock = NSLock()
+    private static var keychainAccessDenied = false
+
+    public static func detect(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+        guard let proxyHost = EndpointConfiguration.liteLLMProxyBaseURL?.host else { return nil }
+        if let key = keyFromSettings(home: home, expectedProxyHost: proxyHost) { return key }
+        for name in shellProfiles {
+            if let key = keyFromShellProfile(home.appendingPathComponent(name), expectedProxyHost: proxyHost) {
+                return key
+            }
+        }
+        return keyFromTrackerKeychain()
+    }
+
+    /// La clave que guarda Claude Usage Tracker. Es la fuente más probable:
+    /// esa app ya seauthenticó en el proxy y guardó la clave allí.
+    private static func keyFromTrackerKeychain() -> String? {
+        stateLock.lock()
+        let denied = keychainAccessDenied
+        stateLock.unlock()
+        guard !denied else { return nil }
+
+        let result = KeychainStore.readWithStatus(service: trackerService, account: trackerAccount)
+        if result.status == errSecAuthFailed || result.status == errSecInteractionNotAllowed {
+            stateLock.lock()
+            keychainAccessDenied = true
+            stateLock.unlock()
+            return nil
+        }
+        guard let value = result.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return usable(value)
+    }
+
+    /// `~/.claude/settings.json` y los perfiles `~/.claude-*`.
+    public static func keyFromSettings(home: URL, expectedProxyHost: String? = nil) -> String? {
+        var directories: [URL] = [home.appendingPathComponent(".claude")]
+        let profiles = (try? FileManager.default.contentsOfDirectory(atPath: home.path)) ?? []
+        directories += profiles
+            .filter { $0.hasPrefix(".claude-") }
+            .sorted()
+            .map { home.appendingPathComponent($0) }
+
+        for directory in directories {
+            guard let key = key(
+                fromSettings: directory.appendingPathComponent("settings.json"),
+                expectedProxyHost: expectedProxyHost ?? EndpointConfiguration.liteLLMProxyBaseURL?.host
+            ) else {
+                continue
+            }
+            return key
+        }
+        return nil
+    }
+
+    private static func key(fromSettings url: URL, expectedProxyHost: String?) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let env = json["env"] as? [String: Any],
+              let baseURL = env["ANTHROPIC_BASE_URL"] as? String,
+              let expectedProxyHost,
+              URL(string: baseURL)?.host == expectedProxyHost else { return nil }
+        let key = (env["ANTHROPIC_AUTH_TOKEN"] as? String) ?? (env["ANTHROPIC_API_KEY"] as? String)
+        return key.flatMap(usable)
+    }
+
+    /// Solo valores literales: se descartan los exports construidos con
+    /// variables o con sustitución de comandos.
+    public static func keyFromShellProfile(_ url: URL, expectedProxyHost: String? = nil) -> String? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8),
+              let expectedProxyHost = expectedProxyHost ?? EndpointConfiguration.liteLLMProxyBaseURL?.host,
+              text.contains(expectedProxyHost) else { return nil }
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix(exportPrefix) else { continue }
+            var value = String(trimmed.dropFirst(exportPrefix.count))
+            // El valor acaba en el primer separador: `; export …`, `&& …`, ` # comentario`.
+            if let end = value.firstIndex(where: { ";&| \t#".contains($0) }) { value = String(value[..<end]) }
+            value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+            guard !value.contains("$"), !value.contains("`"), let key = usable(value) else { continue }
+            return key
+        }
+        return nil
+    }
+
+    /// Las claves directas de Anthropic nunca se envían al proxy LiteLLM.
+    private static func usable(_ key: String) -> String? {
+        key.isEmpty || key.hasPrefix("sk-ant-") ? nil : key
+    }
+}
+
 // MARK: - Process runner
 
 public enum ProcessRunner {
@@ -334,10 +459,32 @@ public enum CredentialResolver {
             }
         }
 
+        var liteLLMKey: String?
+        if providers.contains(.liteLLM) {
+            let manualLiteLLM = KeychainStore.read(account: ProviderID.liteLLM.rawValue)
+            let legacyManual = manualLiteLLM == nil
+                ? KeychainStore.read(account: ProviderID.legacyLiteLLMIdentifier)
+                : nil
+            if manualLiteLLM == nil, let legacyManual {
+                if (try? KeychainStore.save(account: ProviderID.liteLLM.rawValue, value: legacyManual)) != nil {
+                    KeychainStore.delete(account: ProviderID.legacyLiteLLMIdentifier)
+                }
+            }
+            let savedManual = manualLiteLLM ?? legacyManual
+            if let savedManual, !savedManual.isEmpty {
+                liteLLMKey = savedManual
+                statuses[.liteLLM] = .manual
+            } else {
+                liteLLMKey = LiteLLMKeyLocator.detect()
+                statuses[.liteLLM] = liteLLMKey != nil ? .detected : .missing
+            }
+        }
+
         return ResolvedCredentials(
             openCodeKey: openCodeKey,
             copilotToken: copilotToken,
             claude: claude,
+            liteLLMKey: liteLLMKey,
             statuses: statuses
         )
     }

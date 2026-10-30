@@ -34,7 +34,7 @@ struct SettingsView: View {
                 model.resetAll()
             }
         } message: {
-            Text("Se eliminarán ajustes, historial, alertas y claves manuales. La sesión de Claude Code no se toca.")
+            Text("Se eliminarán ajustes, historial, alertas, claves manuales y la sesión SSO de LiteLLM. La sesión de Claude Code no se toca.")
         }
     }
 
@@ -71,7 +71,7 @@ struct SettingsView: View {
             Toggle("Mostrar valor de uso estimado", isOn: $model.settings.showEstimates)
 
             Toggle("Recomendaciones de modelos (beta)", isOn: $model.modelRecommendationsEnabled)
-            Text("Sugerencias por contexto, recencia y precio. Solo modelos con tarifa publicada, no gratuitos, de los últimos 6 meses y no deprecated.")
+            Text("Sugerencias por contexto, recencia y precio. Modelos con tarifa de los últimos 6 meses y no deprecated; los gratuitos solo se excluyen en OpenCode Go por su política de uso de datos.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -235,16 +235,16 @@ struct SettingsView: View {
 
     private var about: some View {
         SettingsSection(title: "Acerca de Usage Tracker", subtitle: "Versión \(model.appVersion)") {
-            Text("Usage Tracker centraliza el uso de OpenCode Go, GitHub Copilot y Claude en la barra de menús de macOS.")
+            Text("Usage Tracker centraliza el uso de OpenCode Go, GitHub Copilot, Claude y LiteLLM en la barra de menús de macOS.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Sin backend, sin telemetría y sin sincronización en nube. Las peticiones de red van solo a opencode.ai, api.github.com, api.anthropic.com, models.dev, github.com, objects.githubusercontent.com y release-assets.githubusercontent.com; los hosts de GitHub se usan también para comprobar actualizaciones y descargar el DMG. Las credenciales se leen del Keychain o de las herramientas locales y se mantienen en memoria durante la petición.")
+            Text("Sin backend, sin telemetría y sin sincronización propia en nube. Los endpoints de LiteLLM se inyectan desde la configuración privada de build. Los demás hosts de red se limitan a opencode.ai, api.github.com, api.anthropic.com, models.dev, github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. El SSO se conserva en el almacén WebKit de esta app; las demás credenciales se leen del Keychain o de las herramientas locales y se mantienen en memoria durante la petición.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("El plan y el precio se detectan automáticamente cuando el proveedor lo expone (Claude y Copilot). OpenCode Go no publica el plan en su API, así que se asume Go y puedes cambiarlo. Los precios de modelos vienen de models.dev y se cachean 24 horas.")
+            Text("El plan y el precio se detectan automáticamente cuando el proveedor lo expone (Claude, Copilot y LiteLLM). OpenCode Go no publica el plan en su API, así que se asume Go y puedes cambiarlo. El catálogo de modelos combina OpenCode Go, los deployments/precios públicos del proxy LiteLLM y metadatos de models.dev; se cachea 24 horas.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

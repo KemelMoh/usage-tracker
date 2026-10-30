@@ -72,8 +72,8 @@ private enum ProviderIconAsset {
     private static let cache: [String: NSImage] = {
         var images: [String: NSImage] = [:]
         let names = [
-            "opencode", "copilot", "copilot-dark", "claude",
-            "opencode-menu", "copilot-menu", "claude-menu"
+            "opencode", "copilot", "copilot-dark", "claude", "litellm",
+            "opencode-menu", "copilot-menu", "claude-menu", "litellm-menu"
         ]
         for name in names {
             guard let url = Bundle.main.url(
@@ -97,6 +97,8 @@ private enum ProviderIconAsset {
             name = isDark ? "copilot-dark" : "copilot"
         case .claude:
             name = "claude"
+        case .liteLLM:
+            name = "litellm"
         }
 
         return cache[name]
@@ -111,6 +113,8 @@ private enum ProviderIconAsset {
             name = "copilot-menu"
         case .claude:
             name = "claude-menu"
+        case .liteLLM:
+            name = "litellm-menu"
         }
 
         // El tamaño lógico debe ser el del menú, no los 256 px del PNG. Se
@@ -313,6 +317,23 @@ struct ProviderCard: View {
         return snapshot.planName
     }
 
+    /// Si el proxy LiteLLM fue usado como fallback, puede informar del gasto
+    /// en un 422 sin incluir el reinicio. Conservamos la última fecha conocida
+    /// por la suscripción para seguir mostrando cuenta atrás y previsión.
+    private var displayedWindows: [QuotaWindow] {
+        snapshot.windows.map { original in
+            var window = original
+            if snapshot.provider == .liteLLM,
+               window.resetsAt == nil,
+               let renewalDate = subscription.renewalDate,
+               renewalDate > clock.now {
+                window.resetsAt = renewalDate
+                if window.windowDuration == nil { window.windowDuration = 30 * 86_400 }
+            }
+            return window
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 10 : 14) {
             HStack(spacing: 10) {
@@ -358,7 +379,7 @@ struct ProviderCard: View {
                     .foregroundStyle(.secondary)
             } else {
                 VStack(spacing: compact ? 8 : 12) {
-                    ForEach(snapshot.windows) { window in
+                    ForEach(displayedWindows) { window in
                         QuotaRow(window: window, provider: snapshot.provider, clock: clock, compact: compact)
                     }
                 }

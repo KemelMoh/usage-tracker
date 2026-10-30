@@ -200,7 +200,7 @@ struct OverviewView: View {
                     }
                 }
 
-                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos, en los últimos 30 días. En Copilot son los AI credits consumidos en el ciclo de cuota actual, a 0,01 $ cada uno. No es una factura.")
+                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos, en los últimos 30 días. En Copilot son los AI credits consumidos en el ciclo de cuota actual, a 0,01 $ cada uno. En LiteLLM es el gasto real del portal de cuenta.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -393,7 +393,9 @@ struct HistoryView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(provider == .copilot ? "AI credits por día" : "Tokens por día")
+                    Text(provider == .copilot
+                         ? "AI credits por día"
+                         : (provider == .liteLLM ? "Tokens por día · LiteLLM" : "Tokens por día"))
                         .font(.headline)
                     Text("\(filtered.count) días con datos")
                         .font(.caption2)
@@ -487,11 +489,15 @@ struct HistoryView: View {
     }
 
     private func modelBreakdownCard(_ summary: HistorySummary) -> some View {
-        let aggregates = summary.models
+        let aggregates = provider == .liteLLM
+            ? (model.snapshots[.liteLLM]?.models ?? summary.models)
+            : summary.models
         return VStack(alignment: .leading, spacing: 12) {
             Text("Modelos")
                 .font(.headline)
-            Text("Tokens y coste estimado en el rango seleccionado")
+            Text(provider == .liteLLM
+                 ? "Gasto y tokens reales según LiteLLM (últimos 120 días)"
+                 : "Tokens y coste estimado en el rango seleccionado")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -651,9 +657,64 @@ struct SubscriptionEditor: View {
 
             Divider()
 
+            if provider == .liteLLM {
+                LiteLLMSSOSection(model: model)
+                Divider()
+            }
+
             SubscriptionCredentialEditor(model: model, provider: provider)
         }
         .card(padding: 18)
+    }
+}
+
+struct LiteLLMSSOSection: View {
+    @ObservedObject var model: AppModel
+
+    private var statusColor: Color {
+        switch model.liteLLMSSOStatus {
+        case .signedIn: return .green
+        case .needsLogin: return .orange
+        case .signingIn: return .blue
+        case .unknown, .signedOut: return .secondary
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "person.crop.circle.badge.checkmark")
+                    .foregroundStyle(statusColor)
+                Text("Inicio de sesión de LiteLLM (SSO)")
+                    .font(.caption.weight(.medium))
+                Spacer()
+                Text(model.liteLLMSSOStatus.label)
+                    .font(.caption2)
+                    .foregroundStyle(statusColor)
+            }
+
+            Text("El SSO proporciona el nivel del presupuesto, la fecha de renovación y el historial de uso. La sesión se guarda en WebKit de forma local; la clave del proxy sigue disponible como alternativa.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(model.liteLLMSSOStatus == .signingIn ? "Abriendo…" : "Iniciar sesión SSO") {
+                    model.signInLiteLLM()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(model.liteLLMSSOStatus == .signingIn)
+
+                if model.liteLLMSSOStatus == .signedIn || model.liteLLMSSOStatus == .needsLogin {
+                    Button("Cerrar sesión") {
+                        model.signOutLiteLLM()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
     }
 }
 
@@ -675,6 +736,7 @@ struct SubscriptionCredentialEditor: View {
         case .manual: return .blue
         case .missing: return .secondary
         case .expired: return .orange
+        case .notRequired: return .secondary
         case .disabled: return .secondary
         }
     }

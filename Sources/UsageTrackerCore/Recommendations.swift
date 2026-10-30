@@ -61,7 +61,7 @@ public enum WorkloadPriceCaps {
     public static func caps(for provider: ProviderID) -> [WorkloadBadge: WorkloadPriceCap] {
         switch provider {
         case .opencodeGo: return openCodeGo
-        case .claude, .copilot: return standard
+        case .claude, .copilot, .liteLLM: return standard
         }
     }
 
@@ -152,8 +152,9 @@ public struct RecommendationIndex: Sendable {
 
 public enum ModelRecommender {
     /// Devuelve hasta tres modelos distintos de un proveedor, uno por badge.
-    /// Solo entran modelos con precio conocido, no gratuitos, no deprecated y
-    /// publicados en los últimos seis meses. Cada badge tiene un tope de precio.
+    /// Solo entran modelos con precio conocido, no deprecated y publicados en
+    /// los últimos seis meses. Los gratuitos se excluyen solo para OpenCode Go;
+    /// LiteLLM y el resto de proveedores pueden recomendarlos.
     public static func recommendations(
         for provider: ProviderID,
         from models: [CatalogModel],
@@ -177,9 +178,15 @@ public enum ModelRecommender {
             ?? now.addingTimeInterval(-183 * 86_400)
 
         let eligible = providerModels.filter { model in
-            guard !model.isFree, !model.isDeprecated else { return false }
-            guard let input = model.inputPerMillion, input > 0,
-                  let output = model.outputPerMillion, output > 0 else {
+            guard !(provider == .opencodeGo && model.isFree), !model.isDeprecated else { return false }
+            guard let input = model.inputPerMillion,
+                  let output = model.outputPerMillion else {
+                return false
+            }
+            // Algunos deployments LiteLLM realmente gratuitos se publican a
+            // cero; siguen siendo válidos para recomendación. OpenCode Go los
+            // excluye por la política de uso/entrenamiento del proveedor.
+            guard (input > 0 && output > 0) || (provider != .opencodeGo && model.isFree) else {
                 return false
             }
             guard let date = model.referenceDate,

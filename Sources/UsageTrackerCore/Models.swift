@@ -3,9 +3,13 @@ import Foundation
 // MARK: - Providers
 
 public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Old on-disk ID kept only to migrate existing local state and Keychain entries.
+    public static let legacyLiteLLMIdentifier = ["mas", "orange"].joined()
+
     case copilot = "copilot"
     case claude = "claude"
     case opencodeGo = "opencode-go"
+    case liteLLM = "litellm"
 
     public var id: String { rawValue }
 
@@ -14,6 +18,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return "OpenCode Go"
         case .copilot: return "GitHub Copilot"
         case .claude: return "Claude"
+        case .liteLLM: return "LiteLLM"
         }
     }
 
@@ -22,6 +27,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return "OC"
         case .copilot: return "CP"
         case .claude: return "CL"
+        case .liteLLM: return "LLM"
         }
     }
 
@@ -30,6 +36,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return "Go"
         case .copilot: return "Business"
         case .claude: return "Pro"
+        case .liteLLM: return "LiteLLM"
         }
     }
 
@@ -38,6 +45,8 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return 10
         case .copilot: return 19
         case .claude: return 20
+        // El presupuesto lo concede la empresa: no es un gasto del usuario.
+        case .liteLLM: return 0
         }
     }
 
@@ -46,6 +55,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return "#F97316"
         case .copilot: return "#6D5EF8"
         case .claude: return "#D97757"
+        case .liteLLM: return "#635BFF"
         }
     }
 
@@ -54,6 +64,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         case .opencodeGo: return "chevron.left.forwardslash.chevron.right"
         case .copilot: return "bolt.fill"
         case .claude: return "sparkles"
+        case .liteLLM: return "server.rack"
         }
     }
 
@@ -101,6 +112,19 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
                     note: "Precio personalizado o incluido por la organización."
                 )
             ]
+        case .liteLLM:
+            return [
+                PlanOption(name: "Iron", priceUSD: 0, kind: .included),
+                PlanOption(name: "Bronze", priceUSD: 0, kind: .included),
+                PlanOption(name: "Silver", priceUSD: 0, kind: .included),
+                PlanOption(name: "Gold", priceUSD: 0, kind: .included),
+                PlanOption(
+                    name: "LiteLLM",
+                    priceUSD: 0,
+                    kind: .included,
+                    note: "Presupuesto incluido, no es un gasto propio."
+                )
+            ]
         }
     }
 
@@ -110,6 +134,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .opencodeGo: return false
         case .copilot, .claude: return true
+        case .liteLLM: return true
         }
     }
 
@@ -121,6 +146,8 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
             return "El plan se detecta desde tu cuenta de GitHub."
         case .claude:
             return "El plan se detecta desde la sesión de Claude Code."
+        case .liteLLM:
+            return "El nivel del presupuesto se detecta con la sesión del portal de cuenta LiteLLM."
         }
     }
 
@@ -136,7 +163,35 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
             return "Se detecta con `gh auth token` o puedes pegar un token con acceso a Copilot."
         case .claude:
             return "Se detecta en el Keychain de Claude Code. Si caducó, abre Claude Code para renovarla."
+        case .liteLLM:
+            return "Se detecta en el Keychain de Claude Usage Tracker o en la configuración de Claude Code."
         }
+    }
+
+    /// Accept the former provider identifier when decoding existing local data.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        if value == Self.legacyLiteLLMIdentifier {
+            self = .liteLLM
+            return
+        }
+        guard let provider = ProviderID(rawValue: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Proveedor desconocido."
+            )
+        }
+        self = provider
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public static func persistedID(_ value: String) -> ProviderID? {
+        value == legacyLiteLLMIdentifier ? .liteLLM : ProviderID(rawValue: value)
     }
 }
 
@@ -737,6 +792,7 @@ public enum CredentialStatus: String, Codable, Sendable {
     case manual
     case missing
     case expired
+    case notRequired
     /// El proveedor está desactivado; no se leen sus credenciales.
     case disabled
 
@@ -746,6 +802,7 @@ public enum CredentialStatus: String, Codable, Sendable {
         case .manual: return "Manual"
         case .missing: return "No encontrada"
         case .expired: return "Caducada"
+        case .notRequired: return "No necesaria"
         case .disabled: return "Desactivada"
         }
     }
@@ -755,17 +812,20 @@ public struct ResolvedCredentials: Sendable {
     public var openCodeKey: String?
     public var copilotToken: String?
     public var claude: ClaudeCredentials?
+    public var liteLLMKey: String?
     public var statuses: [ProviderID: CredentialStatus]
 
     public init(
         openCodeKey: String? = nil,
         copilotToken: String? = nil,
         claude: ClaudeCredentials? = nil,
+        liteLLMKey: String? = nil,
         statuses: [ProviderID: CredentialStatus] = [:]
     ) {
         self.openCodeKey = openCodeKey
         self.copilotToken = copilotToken
         self.claude = claude
+        self.liteLLMKey = liteLLMKey
         self.statuses = statuses
     }
 }

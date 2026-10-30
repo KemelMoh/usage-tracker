@@ -52,7 +52,7 @@ checkEqual(QuotaWindow(id: "w", label: "W", usedPercent: 25).remainingPercent, 7
 let defaultSettings = AppSettings.default
 checkEqual(defaultSettings.subscriptions.count, ProviderID.allCases.count, "suscripción por proveedor")
 checkClose(defaultSettings.totalMonthlyUSD, 49, "coste mensual por defecto")
-checkEqual(defaultSettings.activeSubscriptions.count, 3, "suscripciones activas por defecto")
+checkEqual(defaultSettings.activeSubscriptions.count, 4, "suscripciones activas por defecto")
 checkClose(Currency.usdToEURRate, 0.92, "tipo de cambio interno fijo")
 
 let customSettings = AppSettings(subscriptions: [
@@ -61,7 +61,7 @@ let customSettings = AppSettings(subscriptions: [
 ])
 checkClose(customSettings.totalMonthlyUSD, 19, "solo cuenta suscripciones activas")
 checkEqual(customSettings.activeSubscriptions.count, 1, "filtro de activas")
-checkEqual(defaultSettings.activeProviderIDs.count, 3, "todos los proveedores activos por defecto")
+checkEqual(defaultSettings.activeProviderIDs.count, 4, "todos los proveedores activos por defecto")
 check(!customSettings.activeProviderIDs.contains(.claude), "un proveedor desactivado no está activo")
 check(customSettings.activeProviderIDs.contains(.copilot), "un proveedor activo sigue presente")
 checkEqual(CredentialStatus.disabled.label, "Desactivada", "etiqueta de credencial desactivada")
@@ -157,7 +157,24 @@ check(!MenuBarMode.selectableCases.contains(.monthlyCost), "el coste mensual ya 
 checkEqual(Currency.eur.symbol, "€", "símbolo EUR")
 checkEqual(Currency.usd.symbol, "$", "símbolo USD")
 checkEqual(ProviderID.opencodeGo.shortName, "OC", "abreviatura OpenCode")
-checkEqual(ProviderID.allCases.map(\.rawValue), ["copilot", "claude", "opencode-go"], "orden de proveedores")
+checkEqual(ProviderID.allCases.map(\.rawValue), ["copilot", "claude", "opencode-go", "litellm"], "orden de proveedores")
+
+let legacyLiteLLMIdentifier = ProviderID.legacyLiteLLMIdentifier
+let legacyProviderData = Data("\"\(legacyLiteLLMIdentifier)\"".utf8)
+if let legacyProvider = try? JSONDecoder().decode(ProviderID.self, from: legacyProviderData) {
+    checkEqual(legacyProvider, .liteLLM, "identificador anterior de proveedor migra a LiteLLM")
+} else {
+    check(false, "decodificación del identificador anterior de LiteLLM")
+}
+checkEqual(ProviderID.persistedID(legacyLiteLLMIdentifier), .liteLLM, "claves antiguas de snapshots migran a LiteLLM")
+let legacyLiteLLMSubscriptionJSON = Data("""
+{"id":"\(legacyLiteLLMIdentifier)","planName":"Iron","monthlyPriceUSD":0}
+""".utf8)
+if let legacySubscription = try? JSONDecoder().decode(Subscription.self, from: legacyLiteLLMSubscriptionJSON) {
+    checkEqual(legacySubscription.id, .liteLLM, "suscripción anterior se conserva al migrar a LiteLLM")
+} else {
+    check(false, "decodificación de suscripción anterior de LiteLLM")
+}
 
 // MARK: - Previsión
 
@@ -585,6 +602,105 @@ do {
         "el modelo gratuito no en vivo se marca como no live"
     )
 
+    let liteLLMCostMap = Data("""
+    {
+      "deployment-sonnet-free": {
+        "base_model": "claude-sonnet-5-5",
+        "tier": "free",
+        "input_cost_per_token": 0.000001,
+        "output_cost_per_token": 0.000005,
+        "cache_read_input_token_cost": 0.0000001,
+        "max_input_tokens": 1000000
+      },
+      "deployment-sonnet-paid": {
+        "base_model": "claude-sonnet-5-5",
+        "tier": "paid",
+        "input_cost_per_token": 0.000002,
+        "output_cost_per_token": 0.00001,
+        "max_input_tokens": 1000000
+      },
+      "deployment-haiku-free": {
+        "base_model": "claude-haiku-5-5",
+        "tier": "free",
+        "input_cost_per_token": 0.0000000001,
+        "output_cost_per_token": 0.0000000005
+      },
+      "deployment-haiku-paid": {
+        "base_model": "claude-haiku-5-5",
+        "tier": "paid",
+        "input_cost_per_token": 0.0000001,
+        "output_cost_per_token": 0.0000005
+      },
+      "deployment-gpt": {
+        "base_model": "openai/gpt-5.4",
+        "tier": "paid",
+        "input_cost_per_token": 0.0000025,
+        "output_cost_per_token": 0.000015
+      },
+      "claude-sonnet-5-5": {
+        "input_cost_per_token": 0.000002,
+        "output_cost_per_token": 0.00001
+      },
+      "claude-haiku-5-5": {
+        "input_cost_per_token": 0.0000001,
+        "output_cost_per_token": 0.0000005
+      },
+      "gpt-5.4": {
+        "input_cost_per_token": 0.0000025,
+        "output_cost_per_token": 0.000015
+      },
+      "ordinary-price-entry": {
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015
+      }
+    }
+    """.utf8)
+
+    let liteLLMModels = try LiteLLMModelsClient.parseCostMap(data: liteLLMCostMap)
+    checkEqual(liteLLMModels.count, 5, "LiteLLM lista solo sus deployments de modelo")
+    checkEqual(liteLLMModels.map(\.provider), Array(repeating: .liteLLM, count: 5), "modelos del proveedor LiteLLM")
+    checkEqual(liteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5" })?.inputPerMillion, 1, "precio free de LiteLLM")
+    checkEqual(liteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5" })?.listInputPerMillion, 2, "precio de lista de Sonnet")
+    checkClose(liteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5" })?.discount ?? 0, 0.5, "descuento de Sonnet")
+    checkEqual(liteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5-vertex" })?.inputPerMillion, 2, "precio paid de LiteLLM")
+    let liteLLMFreeHaiku = liteLLMModels.first { $0.modelID == "claude-haiku-5-5" }
+    check(liteLLMFreeHaiku?.isFree == true, "la ruta LiteLLM con tarifa casi cero se marca gratis")
+    check((liteLLMFreeHaiku?.discount ?? 0) >= 0.995, "la ruta gratis supera el umbral de campaña")
+    checkEqual(liteLLMModels.first(where: { $0.modelID == "openai/gpt-5.4" })?.outputPerMillion, 15, "precio de modelo OpenAI en LiteLLM")
+
+    let liteLLMMetadata = Data("""
+    {
+      "anthropic":{"models":{
+        "claude-sonnet-5-5":{"id":"claude-sonnet-5-5","name":"Claude Sonnet 5.5","reasoning":true,"tool_call":true,"limit":{"context":1000000,"output":128000},"release_date":"2026-09-22","last_updated":"2026-09-22","status":"active","canonical_model_id":"anthropic/claude-sonnet-5-5"},
+        "claude-haiku-5-5":{"id":"claude-haiku-5-5","name":"Claude Haiku 5.5","reasoning":false,"tool_call":true,"limit":{"context":1000000,"output":128000},"release_date":"2026-09-15","status":"active","canonical_model_id":"anthropic/claude-haiku-5-5"}
+      }},
+      "openai":{"models":{
+        "gpt-5.4":{"id":"gpt-5.4","name":"GPT-5.4","reasoning":true,"tool_call":true,"limit":{"context":1000000,"output":128000},"release_date":"2026-09-20","status":"active","canonical_model_id":"openai/gpt-5.4"}
+      }}
+    }
+    """.utf8)
+    let enrichedLiteLLMModels = ModelsDevParser.enrichLiteLLMModels(liteLLMModels, from: liteLLMMetadata)
+    checkEqual(enrichedLiteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5-vertex" })?.name, "Claude Sonnet 5.5 (Vertex)", "nombre legible de la ruta Vertex")
+    checkEqual(enrichedLiteLLMModels.first(where: { $0.modelID == "claude-sonnet-5-5" })?.releaseDate, "2026-09-22", "fecha de publicación asociada a LiteLLM")
+    checkEqual(enrichedLiteLLMModels.first(where: { $0.modelID == "openai/gpt-5.4" })?.canonicalModelID, "openai/gpt-5.4", "metadatos del proveedor base asociados")
+    let liteLLMRecommendations = ModelRecommender.recommendations(
+        for: .liteLLM,
+        from: enrichedLiteLLMModels,
+        now: DateUtils.parseDay("2026-10-30")!
+    )
+    checkEqual(liteLLMRecommendations.count, 3, "recomendaciones LiteLLM con metadatos de modelos.dev")
+    check(
+        liteLLMRecommendations.contains { $0.model.modelID == "claude-haiku-5-5" },
+        "una ruta gratuita LiteLLM puede entrar en recomendaciones"
+    )
+
+    let catalogWithLiteLLM = ModelCatalogService.makeCatalog(
+        devModels: parsed,
+        openCodeLiveIDs: [],
+        liteLLMModels: enrichedLiteLLMModels
+    )
+    checkEqual(catalogWithLiteLLM.models(for: .liteLLM).count, 5, "los deployments LiteLLM se combinan en la pestaña Modelos")
+
     let openCodePrices = mergedCatalog.priceTable(for: .opencodeGo)
     let deepSeekPrice = PricingCatalog.price(for: "deepseek-v4.1-flash", catalog: openCodePrices)
     checkClose(deepSeekPrice.input, 0.15, "tarifa dinámica de entrada")
@@ -748,10 +864,26 @@ check(recommendations.contains { $0.badge == .ultra && $0.model.modelID == "ultr
 check(recommendations.contains { $0.badge == .medium && $0.model.modelID == "medium" }, "medium usa el modelo equilibrado")
 check(recommendations.contains { $0.badge == .light && $0.model.modelID == "light" }, "light usa el modelo barato")
 check(!recommendations.contains { $0.model.modelID == "old" }, "se descartan modelos de más de 6 meses")
-check(!recommendations.contains { $0.model.modelID == "free" }, "se descartan gratuitos")
+check(!recommendations.contains { $0.model.modelID == "free" }, "OpenCode Go excluye gratuitos")
 check(!recommendations.contains { $0.model.modelID == "unknown-price" }, "se descartan tarifas desconocidas")
 check(!recommendations.contains { $0.model.modelID == "deprecated" }, "se descartan deprecated")
 check(!recommendations.contains { $0.model.modelID == "too-expensive" }, "se descartan modelos por encima del tope de coste")
+
+let freeLiteLLMModel = recommendationModel(
+    id: "litellm-free",
+    provider: .liteLLM,
+    input: 0,
+    output: 0,
+    context: 1_000_000,
+    releaseDate: "2026-10-01"
+)
+let liteLLMFreeRecommendations = ModelRecommender.recommendations(
+    for: .liteLLM,
+    from: [freeLiteLLMModel],
+    now: recommendationNow
+)
+checkEqual(liteLLMFreeRecommendations.count, 1, "LiteLLM puede recomendar su modelo gratuito")
+checkEqual(liteLLMFreeRecommendations.first?.model.modelID, "litellm-free", "la recomendación gratuita pertenece a LiteLLM")
 
 // Los topes de precio dependen del proveedor: OpenCode Go tiene un catálogo
 // mucho más barato que Claude o Copilot.
@@ -1288,10 +1420,145 @@ do {
     let decoded = try decoder.decode(PersistedState.self, from: data)
 
     checkEqual(decoded.catalog?.models.count, 1, "catálogo persistido")
+    checkEqual(decoded.catalog?.sourceVersion, ModelCatalog.currentSourceVersion, "versión de enrichments del catálogo persistida")
     checkEqual(decoded.catalog?.models.first?.modelID, "claude-opus-5-5", "id de modelo persistido")
     checkClose(decoded.catalog?.models.first?.inputPerMillion ?? 0, 4, "precio del catálogo persistido")
 } catch {
     check(false, "ida y vuelta del catálogo: \(error)")
+}
+
+// MARK: - LiteLLM
+
+section("LiteLLM")
+
+let litellmError = Data("""
+{"error":{"message":"Budget has been exceeded! TeamMember=user@example.test:30086c18-9540-4ab2-99dd-6a4538d44dff Current cost: 105.2314001419999, Max budget: 105.0","type":"budget_exceeded","param":null,"code":"422"}}
+""".utf8)
+
+if let budget = LiteLLMBudget(exceededPayload: litellmError) {
+    checkClose(budget.spend, 105.2314001419999, "gasto leído del error de presupuesto", tolerance: 0.0001)
+    checkClose(budget.limit ?? 0, 105.0, "límite leído del error de presupuesto")
+    checkEqual(budget.account, "user@example.test", "cuenta extraída del error de presupuesto")
+    check(budget.resetsAt == nil, "el error de presupuesto no trae fecha de reinicio")
+} else {
+    check(false, "lectura del error de presupuesto")
+}
+
+check(LiteLLMBudget(exceededPayload: Data("{\"error\":{\"message\":\"otro error\"}}".utf8)) == nil, "un 422 que no es de presupuesto no se interpreta")
+check(LiteLLMBudget(exceededPayload: Data("no json".utf8)) == nil, "un cuerpo no JSON no se interpreta")
+check(ProviderID.liteLLM.supportsPlanDetection, "LiteLLM detecta el tier desde el portal de cuenta")
+checkEqual(ProviderID.liteLLM.planOption(named: "Silver")?.name, "Silver", "tier Silver del catálogo LiteLLM")
+checkEqual(ProviderID.liteLLM.planOption(named: "Gold")?.priceUSD, 0, "tiers corporativos sin coste personal")
+checkEqual(CredentialStatus.notRequired.label, "No necesaria", "credencial del proxy no necesaria con SSO")
+
+if let budgetReset = DateUtils.parseLocalDateTime("2026-11-01 02:30:15.123456") {
+    let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: budgetReset)
+    checkEqual(parts.year, 2026, "año de reinicio de LiteLLM")
+    checkEqual(parts.month, 11, "mes de reinicio de LiteLLM")
+    checkEqual(parts.day, 1, "día de reinicio de LiteLLM")
+    checkEqual(parts.hour, 2, "hora local de reinicio de LiteLLM")
+    checkEqual(parts.minute, 30, "minuto local de reinicio de LiteLLM")
+} else {
+    check(false, "parseo de fecha local de reinicio de LiteLLM")
+}
+check(
+    DateUtils.parseLocalDateTime("2026-11-01T00:00:00Z") == DateUtils.parseISO("2026-11-01T00:00:00Z"),
+    "parseo del reinicio ISO-8601 del portal de cuenta"
+)
+
+let liteLLMKeyInfo = Data("""
+{"key":"sk-test","info":{"spend":12.5,"max_budget":105.0,"budget_duration":"30d","budget_reset_at":"2026-11-01T00:00:00Z","key_alias":"mi-clave","models":["claude-sonnet-5-5"]}}
+""".utf8)
+
+if let info = LiteLLMKeyInfo(payload: liteLLMKeyInfo) {
+    checkClose(info.spend ?? 0, 12.5, "gasto de la clave")
+    checkClose(info.maxBudget ?? 0, 105.0, "límite de la clave")
+    checkEqual(info.keyAlias, "mi-clave", "alias de la clave")
+    check(info.budgetResetAt != nil, "fecha de reinicio de la clave")
+} else {
+    check(false, "lectura de /key/info")
+}
+
+let litellmUserInfo = Data("""
+{"user_id":"user@example.test","spend":42.0,"max_budget":105.0}
+""".utf8)
+
+if let info = LiteLLMKeyInfo(payload: litellmUserInfo) {
+    checkClose(info.spend ?? 0, 42.0, "gasto del usuario")
+    checkClose(info.maxBudget ?? 0, 105.0, "límite del usuario")
+} else {
+    check(false, "lectura de /user/info")
+}
+
+// La detección de la clave: configuración de Claude Code y perfil del shell.
+let litellmHome = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("litellm-home-\(UUID().uuidString)")
+let claudeDir = litellmHome.appendingPathComponent(".claude")
+try? FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+let settingsURL = claudeDir.appendingPathComponent("settings.json")
+let testProxyHost = "proxy.example.test"
+try? Data("""
+{"env":{"ANTHROPIC_BASE_URL":"https://proxy.example.test","ANTHROPIC_AUTH_TOKEN":"sk-proxy-123"}}
+""".utf8).write(to: settingsURL)
+checkEqual(LiteLLMKeyLocator.keyFromSettings(home: litellmHome, expectedProxyHost: testProxyHost), "sk-proxy-123", "clave desde la configuración de Claude Code")
+
+try? Data("""
+{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com","ANTHROPIC_AUTH_TOKEN":"sk-ant-api"}}
+""".utf8).write(to: settingsURL)
+check(LiteLLMKeyLocator.keyFromSettings(home: litellmHome, expectedProxyHost: testProxyHost) == nil, "la configuración de Anthropic directo no se usa")
+
+try? Data("""
+{"env":{"ANTHROPIC_BASE_URL":"https://proxy.example.test","ANTHROPIC_AUTH_TOKEN":"sk-ant-api"}}
+""".utf8).write(to: settingsURL)
+check(LiteLLMKeyLocator.keyFromSettings(home: litellmHome, expectedProxyHost: testProxyHost) == nil, "una clave de Anthropic nunca se envía al proxy")
+
+let profileURL = litellmHome.appendingPathComponent(".zshrc")
+try? Data("""
+# proxy: proxy.example.test
+export ANTHROPIC_AUTH_TOKEN="sk-shell-456"
+""".utf8).write(to: profileURL)
+checkEqual(LiteLLMKeyLocator.keyFromShellProfile(profileURL, expectedProxyHost: testProxyHost), "sk-shell-456", "clave desde el perfil del shell")
+
+try? Data("""
+export ANTHROPIC_AUTH_TOKEN="$LITELLM_TOKEN"
+""".utf8).write(to: profileURL)
+check(LiteLLMKeyLocator.keyFromShellProfile(profileURL, expectedProxyHost: testProxyHost) == nil, "un export con variable no se usa")
+
+try? FileManager.default.removeItem(at: litellmHome)
+
+if ProcessInfo.processInfo.environment["USAGE_TRACKER_LIVE"] == "1" {
+    section("Catálogo LiteLLM en vivo")
+    do {
+        async let deployments = LiteLLMModelsClient.fetchModels()
+        async let metadata = ModelsDevClient.fetchData()
+        let models = try await deployments
+        let modelsDevData = try await metadata
+        let enriched = ModelsDevParser.enrichLiteLLMModels(models, from: modelsDevData)
+        let recommendations = ModelRecommender.recommendations(for: .liteLLM, from: enriched)
+        print("  deployments: \(models.count)")
+        print("  descuentos: \(enriched.filter { $0.discount != nil }.count) · gratis: \(enriched.filter(\.isFree).count)")
+        print("  modelos con fecha: \(enriched.filter { $0.referenceDate != nil }.count) · recomendaciones: \(recommendations.count)")
+        print("  recomendados: \(recommendations.map { $0.model.modelID }.joined(separator: ", "))")
+        print("  ejemplos: \(enriched.prefix(5).map { $0.name + ($0.discount.map { " (−\(Int($0 * 100))%)" } ?? "") }.joined(separator: ", "))")
+    } catch {
+        print("  error: \(error.localizedDescription)")
+    }
+}
+
+// Comprobación en vivo contra el proxy. Solo con USAGE_TRACKER_LIVE=1 y una
+// clave en USAGE_TRACKER_LITELLM_KEY, porque consume red y presupuesto.
+if ProcessInfo.processInfo.environment["USAGE_TRACKER_LIVE"] == "1",
+   let liveKey = ProcessInfo.processInfo.environment["USAGE_TRACKER_LITELLM_KEY"],
+   !liveKey.isEmpty {
+    section("LiteLLM en vivo")
+    let live = await LiteLLMClient().fetch(apiKey: liveKey, fallbackPlan: "LiteLLM")
+    print("  estado: \(live.status.rawValue) · plan: \(live.planName)")
+    for window in live.windows {
+        print("  \(window.label): \(window.usedPercent)% · \(window.detail ?? "—")")
+    }
+    if let account = live.accountLabel { print("  cuenta: \(account)") }
+    if let error = live.errorMessage { print("  error: \(error)") }
 }
 
 // MARK: - Resultado

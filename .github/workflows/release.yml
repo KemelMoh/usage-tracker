@@ -50,7 +50,14 @@ jobs:
         env:
           USAGE_TRACKER_VERSION: ${{ steps.version.outputs.version }}
           USAGE_TRACKER_BUILD: ${{ github.run_number }}
-        run: ./build.sh release
+          USAGE_TRACKER_LITELLM_PROXY_BASE_URL: ${{ secrets.USAGE_TRACKER_LITELLM_PROXY_BASE_URL }}
+          USAGE_TRACKER_ACCOUNT_PORTAL_BASE_URL: ${{ secrets.USAGE_TRACKER_ACCOUNT_PORTAL_BASE_URL }}
+        run: |
+          if [[ -z "$USAGE_TRACKER_LITELLM_PROXY_BASE_URL" || -z "$USAGE_TRACKER_ACCOUNT_PORTAL_BASE_URL" ]]; then
+            echo "Configure the private endpoint secrets before publishing a release." >&2
+            exit 1
+          fi
+          ./build.sh release
 
       - name: Verify code signature
         run: codesign --verify --deep --strict --verbose=2 "Usage Tracker.app"

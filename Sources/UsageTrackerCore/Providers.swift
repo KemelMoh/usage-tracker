@@ -5,15 +5,19 @@ import Foundation
 public final class HTTPClient {
     public static let shared = HTTPClient()
 
-    static let allowedHosts: Set<String> = [
-        "opencode.ai",
-        "api.github.com",
-        "github.com",
-        "objects.githubusercontent.com",
-        "release-assets.githubusercontent.com",
-        "api.anthropic.com",
-        "models.dev"
-    ]
+    static var allowedHosts: Set<String> {
+        var hosts: Set<String> = [
+            "opencode.ai",
+            "api.github.com",
+            "github.com",
+            "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
+            "api.anthropic.com",
+            "models.dev"
+        ]
+        if let host = EndpointConfiguration.liteLLMProxyBaseURL?.host { hosts.insert(host) }
+        return hosts
+    }
 
     private let session: URLSession
 
@@ -33,6 +37,26 @@ public final class HTTPClient {
     }
 
     public func get(url: URL, headers: [String: String]) async throws -> (Data, HTTPURLResponse) {
+        let (data, http) = try await perform(url: url, headers: headers)
+
+        guard (200..<300).contains(http.statusCode) else {
+            let snippet = Self.sanitize(String(data: data, encoding: .utf8) ?? "")
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw ProviderError.auth("Credenciales rechazadas (HTTP \(http.statusCode)). Reautentica el proveedor.")
+            }
+            throw ProviderError.http(http.statusCode, snippet)
+        }
+
+        return (data, http)
+    }
+
+    /// Ejecuta la petición y devuelve la respuesta tal cual, sin comprobar el
+    /// código de estado.
+    ///
+    /// Lo usan los proveedores en los que un error HTTP es parte del contrato:
+    /// el proxy de LiteLLM responde 422 cuando se excede el presupuesto e
+    /// incluye en el cuerpo los números que hay que mostrar.
+    public func perform(url: URL, headers: [String: String]) async throws -> (Data, HTTPURLResponse) {
         guard let host = url.host, Self.allowedHosts.contains(host) else {
             throw ProviderError.network("Host no permitido: \(url.host ?? "desconocido").")
         }
@@ -54,14 +78,6 @@ public final class HTTPClient {
 
         guard let http = response as? HTTPURLResponse else {
             throw ProviderError.network("Respuesta no HTTP.")
-        }
-
-        guard (200..<300).contains(http.statusCode) else {
-            let snippet = Self.sanitize(String(data: data, encoding: .utf8) ?? "")
-            if http.statusCode == 401 || http.statusCode == 403 {
-                throw ProviderError.auth("Credenciales rechazadas (HTTP \(http.statusCode)). Reautentica el proveedor.")
-            }
-            throw ProviderError.http(http.statusCode, snippet)
         }
 
         return (data, http)
@@ -100,6 +116,16 @@ private final class RedirectGuard: NSObject, URLSessionTaskDelegate {
     ) {
         guard let host = request.url?.host,
               HTTPClient.allowedHosts.contains(host) else {
+            completionHandler(nil)
+            return
+        }
+
+        // La clave de LiteLLM solo puede seguir redirecciones dentro del
+        // propio proxy. No debe enviarse a otro host permitido por el cliente
+        // (p. ej. GitHub o Anthropic).
+        if let proxyHost = EndpointConfiguration.liteLLMProxyBaseURL?.host,
+           task.originalRequest?.url?.host == proxyHost,
+           host != proxyHost {
             completionHandler(nil)
             return
         }

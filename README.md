@@ -102,9 +102,10 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 | **Panel compacto** | Al hacer clic en el icono se abre el panel, con pestañas **Uso** y **Modelos**, refresco y engranaje de ajustes. |
 | **Cuota actual** | Ventanas de uso de cada proveedor (5 h, semanal, mensual…), porcentaje consumido, cuenta atrás hasta el reinicio y previsión de consumo al final de la ventana. |
 | **Valor de uso** | Coste estimado. En Claude y OpenCode, los tokens de los últimos 30 días por las tarifas públicas. En Copilot, los AI credits del ciclo de cuota actual. |
-| **Catálogo de modelos** | Contexto, precios de entrada/salida, caché y capacidad de razonamiento o herramientas. Combina el listado en vivo de OpenCode Go con los precios de `models.dev`. Los modelos con tarifa 0 se marcan con **Gratis**. |
-| **Recomendaciones (beta)** | 3 modelos distintos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M que dependen del proveedor. Solo modelos con precio publicado, no gratuitos, no deprecated y de los últimos 6 meses. |
+| **Catálogo de modelos** | Contexto, precio cobrado y precio de lista de entrada/salida y caché. En LiteLLM muestra descuentos/campañas y marca como **Gratis** las rutas casi a coste cero. |
+| **Recomendaciones (beta)** | Hasta 3 modelos por proveedor para Ultra, Medium y Light work, con topes de precio por 1M. En LiteLLM combina precio real del deployment con fecha, estado y capacidades de `models.dev`; incluye rutas gratis. Solo se excluyen los modelos gratuitos de OpenCode Go por su política de uso de datos. |
 | **Plan y precio automáticos** | Claude (sesión de Claude Code) y Copilot (cuenta de GitHub) detectan su plan. Lo detectado no sobrescribe lo que el usuario ajusta a mano. |
+| **Cuenta LiteLLM** | Inicio de sesión SSO, tier Iron/Bronze/Silver/Gold, gasto real, presupuesto, renovación e historial diario y por modelo. |
 | **Historial** | Tokens y coste diario, con gráficas de 7, 30 o 90 días y desglose por modelo. |
 | **Alertas locales** | Aviso al cruzar el 75 %, 90 % o 100 %, y cuando la previsión indica que te pasarás. Notificaciones del sistema o aviso de respaldo. |
 | **Proveedores desactivados** | Dejan de consultarse y desaparecen de Uso, barra de menús, historial y alertas. Sus datos se conservan para cuando vuelvan. |
@@ -120,11 +121,14 @@ Para tenerla siempre a mano, arrastra `Usage Tracker.app` a `/Applications`. El 
 | OpenCode Go · modelos | `GET https://opencode.ai/zen/go/v1/models` | — | Listado en vivo de modelos disponibles. |
 | GitHub Copilot | `GET https://api.github.com/copilot_internal/user` | `gh auth token`, o un token manual | Plan y AI credits. Business/Enterprise no exponen historial por usuario. |
 | Claude | `GET https://api.anthropic.com/api/oauth/usage` | Keychain `Claude Code-credentials`, o un token manual | Si el token de Claude Code caducó, la app lo indica y sigue usando el historial local. |
+| LiteLLM · portal de cuenta | `GET {accountBaseURL}/api/v1/{me, me/month-glance, spend/daily, spend/by-model}` | Sesión SSO de Google Cloud IAP en una ventana WebKit | Tier, presupuesto, fecha de renovación, gasto diario y por modelo. Datos personales de solo lectura. |
+| LiteLLM · alternativa | `GET {proxyBaseURL}/{key/info,user/info}` | Clave del proxy: Keychain de Claude Usage Tracker, `ANTHROPIC_AUTH_TOKEN` de Claude Code o del perfil del shell, o clave manual | Solo consumo y límite del presupuesto. Se usa si no hay sesión SSO disponible. |
+| LiteLLM · modelos | `GET {proxyBaseURL}/public/litellm_model_cost_map` | — | Deployments configurados en el proxy y sus precios actuales; endpoint público, también disponible si el presupuesto está agotado. |
 | Modelos y precios | `GET https://models.dev/api.json?type=all` | — | Precios públicos de Anthropic, GitHub Copilot y OpenCode Go. Se cachea 24 h. |
 | Historial Claude | `~/.claude/stats-cache.json` + transcripciones `~/.claude/projects/**/*.jsonl` | — | Solo se leen los campos de uso (`usage`, `model`, `timestamp`), no el contenido de los mensajes. |
 | Historial OpenCode | `~/.local/share/opencode/opencode.db` (SQLite, solo lectura) | — | Consulta la tabla `session` filtrando `opencode-go`. |
 
-El **valor de uso** suma el coste estimado de los proveedores activos. En Claude y OpenCode cubre los **últimos 30 días** y se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot cubre el **ciclo de cuota actual** y se calcula multiplicando los AI credits consumidos por 0,01 USD, que es lo que vale cada credit desde que GitHub sustituyó los premium requests el 1 de junio de 2026. **Son estimaciones, no facturas.**
+El **valor de uso** suma el coste estimado de los proveedores activos. En Claude y OpenCode cubre los **últimos 30 días** y se calcula multiplicando los tokens de entrada, salida, caché de lectura y caché de escritura por las tarifas públicas de `models.dev` (o la tabla de respaldo) y dividiendo por un millón. En Copilot cubre el **ciclo de cuota actual** y se calcula multiplicando los AI credits consumidos por 0,01 USD, que es lo que vale cada credit desde que GitHub sustituyó los premium requests el 1 de junio de 2026. En LiteLLM muestra el gasto real en USD que reporta el portal de cuenta. **Las estimaciones no son facturas.**
 
 El catálogo de modelos se guarda en el estado local y se actualiza al arrancar si tiene más de 24 horas, al pulsar refrescar en la pestaña **Modelos** o al abrir el dashboard. Si `models.dev` no responde, se conserva el último catálogo válido.
 
@@ -135,6 +139,7 @@ El catálogo de modelos se guarda en el estado local y se actualiza al arrancar 
 | Claude | `subscriptionType` y `rateLimitTier` de la sesión de Claude Code | `enterprise` y `default_claude_zero` → **Enterprise**. `pro`, `max_5x`, `max_20x`, `team` y `free` se asignan a su plan del catálogo. |
 | GitHub Copilot | Campo `copilot_plan` de `api.github.com/copilot_internal/user` | `free`, `individual_pro`, `individual_pro_plus`, `business` y `enterprise` se normalizan al catálogo. Business y Enterprise se muestran como **por asiento**. |
 | OpenCode Go | La API de uso solo devuelve porcentajes | Se asume **Go**. La app no permite cambiar el plan desde la interfaz. |
+| LiteLLM | `budget_team` del portal (`/me`) | Tier **Iron**, **Bronze**, **Silver** o **Gold**, detectado con SSO. Sin sesión SSO se conserva el plan manual. |
 
 ### Interfaz
 
@@ -152,12 +157,13 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 - Claude: se combinan `stats-cache.json` y las transcripciones; las transcripciones mandan cuando hay datos del mismo día.
 - OpenCode: agregado diario por modelo desde su base SQLite.
 - Copilot: como la API no ofrece histórico por usuario, la app guarda un punto por día. La API solo expone el acumulado de AI credits del ciclo, así que el consumo de cada día se obtiene restando el acumulado del día anterior. Los días en los que el acumulado no cambia no se registran, igual que OpenCode con un día sin sesiones.
+- LiteLLM: el portal de cuenta informa del uso diario real de los últimos 120 días y del agregado por modelo para ese mismo rango. Los datos se incorporan al historial local y se conservan hasta 180 días.
 - Se conservan 180 días. La previsión usa el porcentaje consumido, el tiempo transcurrido y la duración de la ventana; la confianza es baja al principio de la ventana y sube con el tiempo.
 
 ## 🔐 Datos y credenciales
 
-- Las claves manuales **que pegues** se guardan en el **Keychain** bajo el servicio `dev.kemel.usagetracker`, una entrada por proveedor (`claude`, `copilot`, `opencode-go`). Si no has pegado ninguna, no existe ninguna entrada.
-- Las credenciales **detectadas** no se copian a ese servicio: Claude Code usa su propio elemento `Claude Code-credentials`, Copilot usa `gh auth token` y OpenCode usa `~/.local/share/opencode/auth.json`.
+- Las claves manuales **que pegues** se guardan en el **Keychain** bajo el servicio `dev.kemel.usagetracker`, una entrada por proveedor (`claude`, `copilot`, `opencode-go`, `litellm`). Si no has pegado ninguna, no existe ninguna entrada.
+- Las credenciales **detectadas** no se copian a ese servicio: Claude Code usa su propio elemento `Claude Code-credentials`, Copilot usa `gh auth token`, OpenCode usa `~/.local/share/opencode/auth.json` y LiteLLM busca la clave del proxy en el Keychain de Claude Usage Tracker, en la configuración de Claude Code (`ANTHROPIC_BASE_URL` apuntando al proxy) o en el perfil del shell. La sesión SSO se mantiene en el almacén WebKit persistente de la app; no se copia al Keychain ni a los exports.
 - En **Suscripciones**, dentro de la tarjeta de cada proveedor, puedes pegar una clave para sustituir la detectada, borrarla o probar la conexión.
 - Nunca se muestran completas en la interfaz, los logs ni los exports. El export incluye ajustes, historial y alertas, pero **no** claves ni tokens.
 - Si hay una clave manual, tiene prioridad sobre la detectada. El botón `Borrar` elimina solo la manual y vuelve a la detección automática.
@@ -165,16 +171,19 @@ La app se refresca al abrir el panel si los datos tienen más de `refreshMinutes
 
 ### Privacidad
 
-- Solo se hacen peticiones a `opencode.ai`, `api.github.com`, `api.anthropic.com`, `models.dev`, `github.com`, `objects.githubusercontent.com` y `release-assets.githubusercontent.com`; el cliente HTTP bloquea hosts y redirecciones fuera de esa lista. Los hosts de GitHub se usan para comprobar actualizaciones y descargar el DMG.
+- Los endpoints privados de LiteLLM se leen de la configuración local de build y no se guardan en este repositorio. El cookie IAP se envía únicamente al portal configurado y sus redirecciones de autenticación no se siguen en el cliente API. La clave LiteLLM no puede redirigirse fuera del proxy configurado. Los demás hosts se limitan a `opencode.ai`, `api.github.com`, `api.anthropic.com`, `models.dev`, `github.com`, `objects.githubusercontent.com` y `release-assets.githubusercontent.com`.
 - No se leen credenciales, cuotas ni historial de proveedores desactivados. En particular, desactivar Claude evita el aviso del llavero de macOS en los refrescos.
 - No hay analytics, crash reporting ni servidores propios. El historial de Claude se procesa en local y no sale del Mac.
 - El estado se guarda en disco en texto plano (sin secretos). Si te preocupa, protege tu carpeta de usuario con FileVault.
+
+Para desarrollo local, copia `Resources/Endpoints.example.plist` a `Resources/Endpoints.private.plist` y configura ahí los endpoints de tu instancia. El archivo privado está ignorado por Git. En releases, se inyectan mediante los secretos `USAGE_TRACKER_LITELLM_PROXY_BASE_URL` y `USAGE_TRACKER_ACCOUNT_PORTAL_BASE_URL`. Los hosts no están en el código público, aunque siguen siendo visibles en el bundle distribuido y en el tráfico de red.
 
 ### Limitaciones conocidas
 
 - **Claude**: la API de uso es interna y puede cambiar. Si el token OAuth caduca, no se refresca solo.
 - **Copilot Business/Enterprise**: no hay desglose diario por usuario ni por modelo en la API. El precio es por asiento y puede estar pagado por la organización.
 - **OpenCode Go**: el plan (Go / Go Plus) se elige manualmente; la API de uso no lo devuelve.
+- **LiteLLM**: el portal de cuenta suele retrasar los datos alrededor de una hora. El inicio de sesión se realiza en WebKit; si la sesión requiere interacción, hay que volver a iniciar sesión desde Suscripciones. Sin sesión SSO, la clave LiteLLM solo permite mostrar el consumo y el límite del presupuesto (incluido cuando el proxy responde 422 por exceso); no ofrece tier, reinicio, uso diario ni desglose por modelo.
 - **Catálogo de modelos**: se actualiza como máximo una vez al día. Un modelo muy reciente puede aparecer en vivo sin precio publicado hasta que `models.dev` lo indexe. Los modelos gratuitos publicados en `models.dev` se muestran aunque el listado en vivo de OpenCode todavía no los incluya. `models.dev` tampoco publica políticas de datos, así que la app no puede indicar si un modelo entrena con tus datos; consulta la política del proveedor.
 - **Recomendaciones**: usan `release_date`/`last_updated` de `models.dev`. Si un modelo no tiene fecha, no se recomienda. Los modelos `deprecated` se excluyen, aunque pueden seguir apareciendo en la lista completa. Los topes por 1M (entrada/salida) dependen del proveedor: en **Claude** y **Copilot**, Light ≤ 0,50/2,50 USD, Medium ≤ 2,50/12,50 USD y Ultra ≤ 5/25 USD; en **OpenCode Go**, Light ≤ 0,40/1,60 USD, Medium ≤ 1,50/6 USD y Ultra ≤ 2/10 USD. La feature flag está en **Ajustes → General → Recomendaciones de modelos (beta)**.
 - **Precios**: son de referencia y se pueden editar por suscripción. La conversión a EUR usa un tipo de cambio interno fijo (0,92); no es configurable desde la interfaz.
@@ -242,7 +251,7 @@ La app no reemplaza ni reinstala el bundle automáticamente: abre el DMG descarg
 | Copilot aparece como «No encontrada» | `gh auth status` y `gh auth login`. El token necesita acceso a Copilot. |
 | Claude aparece «Caducada» | Abre `claude` en Terminal para renovar la sesión; la app seguirá mostrando el historial local. |
 | El plan de Claude no es el esperado | Comprueba que la credencial de Claude sea la correcta en Suscripciones. |
-| La pestaña Modelos está vacía | Pulsa refrescar en esa pestaña. La app necesita acceso a `models.dev`. |
+| La pestaña Modelos está vacía | Pulsa refrescar en esa pestaña y comprueba el acceso a `models.dev` y al mapa público de precios de LiteLLM. |
 | No hay historial de OpenCode | Comprueba que `~/.local/share/opencode/opencode.db` existe y que la app puede leerlo (no está en una carpeta protegida por TCC). |
 | No se puede activar el arranque automático | Mueve `Usage Tracker.app` a `/Applications` y vuelve a intentarlo. |
 | El panel no se abre | Comprueba que no haya otra instancia con `pgrep -fl UsageTracker`; cierra las antiguas. |

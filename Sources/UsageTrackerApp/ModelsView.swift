@@ -27,6 +27,13 @@ struct ModelsCatalogView: View {
         recommendationIndex.providersBelowMinimum
     }
 
+    /// Solo los proveedores que tienen modelos en el catálogo. Un proveedor sin
+    /// modelos no aparece en el filtro: elegirlo solo llevaría a una lista vacía.
+    private var availableProviders: [ProviderID] {
+        let withModels = Set(model.catalogModels.map(\.provider))
+        return ProviderID.allCases.filter { withModels.contains($0) }
+    }
+
     /// Filtra y agrupa el catálogo en una sola pasada.
     ///
     /// Antes esto eran tres propiedades calculadas independientes: cada una
@@ -142,7 +149,7 @@ struct ModelsCatalogView: View {
 
                 Picker("Proveedor", selection: $providerFilter) {
                     Text("Todos").tag(ProviderID?.none)
-                    ForEach(ProviderID.allCases) { provider in
+                    ForEach(availableProviders) { provider in
                         Text(provider.displayName).tag(Optional(provider))
                     }
                 }
@@ -308,6 +315,10 @@ struct ModelsCatalogView: View {
                         .monospacedDigit()
                 }
 
+                if let discount = entry.discount {
+                    campaignBadge(discount)
+                }
+
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
@@ -318,9 +329,15 @@ struct ModelsCatalogView: View {
                 if let badge = recommendationByModelID[entry.id] {
                     recommendationBadge(badge, provider: entry.provider)
                 }
+                if entry.discount != nil, let listPrice = listPriceLine(entry) {
+                    Text(listPrice)
+                        .strikethrough()
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
                 Text(priceLine(entry))
                 Spacer(minLength: 4)
-                if entry.isFree {
+                if entry.isFree && entry.discount == nil {
                     freeTag
                 }
                 if entry.reasoning {
@@ -418,6 +435,28 @@ struct ModelsCatalogView: View {
             parts.append("Salida \(Format.pricePerMillion(output))")
         }
         return parts.isEmpty ? "Sin tarifa publicada" : parts.joined(separator: " · ")
+    }
+
+    private func listPriceLine(_ entry: CatalogModel) -> String? {
+        var parts: [String] = []
+        if let input = entry.listInputPerMillion {
+            parts.append("Entrada \(Format.pricePerMillion(input))")
+        }
+        if let output = entry.listOutputPerMillion {
+            parts.append("Salida \(Format.pricePerMillion(output))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func campaignBadge(_ discount: Double) -> some View {
+        let text = discount >= 0.995 ? "Gratis" : "−\(Format.percent(discount * 100))"
+        return Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.14), in: Capsule())
+            .foregroundStyle(.green)
+            .help("LiteLLM cobra menos que el precio de lista de LiteLLM")
     }
 
     private func tag(_ text: String) -> some View {

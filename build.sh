@@ -34,6 +34,29 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/UsageTracker"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
+# Private provider endpoints are injected from the local ignored plist or CI
+# environment. Do not put deployment URLs in tracked Swift or plist files.
+inject_endpoint() {
+    local env_name="$1"
+    local plist_key="$2"
+    local value="${!env_name:-}"
+
+    if [[ -z "$value" && -f "$ROOT/Resources/Endpoints.private.plist" ]]; then
+        value=$(/usr/libexec/PlistBuddy -c "Print :$plist_key" \
+            "$ROOT/Resources/Endpoints.private.plist" 2>/dev/null || true)
+    fi
+    [[ -n "$value" ]] || return 0
+
+    if ! /usr/libexec/PlistBuddy -c "Add :$plist_key string $value" \
+        "$APP/Contents/Info.plist" 2>/dev/null; then
+        /usr/libexec/PlistBuddy -c "Set :$plist_key $value" \
+            "$APP/Contents/Info.plist"
+    fi
+}
+
+inject_endpoint "USAGE_TRACKER_LITELLM_PROXY_BASE_URL" "LiteLLMProxyBaseURL"
+inject_endpoint "USAGE_TRACKER_ACCOUNT_PORTAL_BASE_URL" "LiteLLMAccountPortalBaseURL"
+
 if [[ -d "$ROOT/Resources/ProviderIcons" ]]; then
     mkdir -p "$APP/Contents/Resources/ProviderIcons"
     cp "$ROOT/Resources/ProviderIcons"/*.png "$APP/Contents/Resources/ProviderIcons/"
