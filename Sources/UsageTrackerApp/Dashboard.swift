@@ -137,7 +137,7 @@ struct OverviewView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("No hay proveedores activos")
                                 .font(.callout.weight(.semibold))
-                            Text("Actívalos desde Suscripciones o desde el engranaje del panel.")
+                            Text("Actívalos desde Suscripciones o desde los ajustes completos.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -200,7 +200,7 @@ struct OverviewView: View {
                     }
                 }
 
-                Text("El valor de uso de Claude y OpenCode se estima a partir de tokens y precios públicos, en los últimos 30 días. En Copilot son los AI credits consumidos en el ciclo de cuota actual, a 0,01 $ cada uno. En LiteLLM es el gasto real del portal de cuenta.")
+                Text("El valor de uso de Anthropic (Claude Code) y OpenCode se estima a partir de tokens y precios públicos, en los últimos 30 días. En Copilot son los AI credits consumidos en el ciclo de cuota actual, a 0,01 $ cada uno. En LiteLLM es el gasto real del portal de cuenta.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +262,7 @@ struct ValueSummaryCard: View {
                 Divider()
                     .padding(.top, 2)
 
-                Text("Claude y OpenCode: tokens × tarifas de models.dev, últimos 30 días. Copilot: AI credits × 0,01 $, consumed en el ciclo de cuota actual.")
+                Text("Anthropic (Claude Code) y OpenCode: tokens × tarifas de models.dev, últimos 30 días. Copilot: AI credits × 0,01 $, consumidos en el ciclo de cuota actual.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -373,7 +373,7 @@ struct HistoryView: View {
                         symbol: "chart.bar.xaxis",
                         title: "Sin historial todavía",
                         message: model.activeProviders.isEmpty
-                            ? "No hay proveedores activos. Actívalos desde Suscripciones o desde el engranaje del panel."
+                            ? "No hay proveedores activos. Actívalos desde Suscripciones o desde los ajustes completos."
                             : (provider == .copilot
                                 ? "Copilot no expone historial por usuario. Usage Tracker irá construyendo el de AI credits en cada actualización."
                                 : "No hay datos en el rango seleccionado.")

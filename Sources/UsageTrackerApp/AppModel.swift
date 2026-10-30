@@ -409,7 +409,7 @@ final class AppModel: ObservableObject {
             Task { await refresh() }
             return
         }
-        let interval = TimeInterval(max(1, settings.refreshMinutes) * 60)
+        let interval = TimeInterval(max(AppSettings.minimumRefreshMinutes, settings.refreshMinutes) * 60)
         if Date().timeIntervalSince(lastRefresh) > interval {
             Task { await refresh() }
         }
@@ -1089,7 +1089,7 @@ final class AppModel: ObservableObject {
 
     private func configureTimer() {
         timer?.invalidate()
-        let interval = TimeInterval(max(1, settings.refreshMinutes) * 60)
+        let interval = TimeInterval(max(AppSettings.minimumRefreshMinutes, settings.refreshMinutes) * 60)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in

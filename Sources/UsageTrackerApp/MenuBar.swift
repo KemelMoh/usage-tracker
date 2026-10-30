@@ -19,32 +19,43 @@ enum PopoverTab: String, CaseIterable, Identifiable {
 struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
 
-    private var isCompact: Bool {
-        model.settings.menuBarMode == .compact
-    }
-
     var body: some View {
         Group {
-            if isCompact,
-               let image = MenuBarProviderImage.make(
-                   providers: model.activeProviders,
-                   percentages: menuBarPercentages
-               ) {
-                Image(nsImage: image)
-                    .renderingMode(.template)
+            switch model.settings.menuBarMode {
+            case .iconOnly:
+                Image(nsImage: NSApp.applicationIconImage)
+                    .renderingMode(.original)
+                    .resizable()
                     .interpolation(.high)
-            } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "gauge.with.dots.needle.50percent")
-                    if !model.menuBarText.isEmpty {
-                        Text(model.menuBarText)
-                            .font(.system(size: 11, weight: .semibold))
-                            .monospacedDigit()
-                    }
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 18, height: 18)
+            case .compact:
+                if let image = MenuBarProviderImage.make(
+                    providers: model.activeProviders,
+                    percentages: menuBarPercentages
+                ) {
+                    Image(nsImage: image)
+                        .renderingMode(.template)
+                        .interpolation(.high)
+                } else {
+                    menuBarTextLabel
                 }
+            case .worstPercent, .monthlyCost:
+                menuBarTextLabel
             }
         }
         .accessibilityLabel(accessibilityText)
+    }
+
+    private var menuBarTextLabel: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "gauge.with.dots.needle.50percent")
+            if !model.menuBarText.isEmpty {
+                Text(model.menuBarText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .monospacedDigit()
+            }
+        }
     }
 
     private var menuBarPercentages: [ProviderID: String] {
@@ -57,7 +68,10 @@ struct MenuBarLabel: View {
     }
 
     private var accessibilityText: String {
-        if isCompact {
+        switch model.settings.menuBarMode {
+        case .iconOnly:
+            return "Usage Tracker"
+        case .compact:
             guard !model.activeProviders.isEmpty else {
                 return "Usage Tracker: sin proveedores activos"
             }
@@ -67,8 +81,9 @@ struct MenuBarLabel: View {
                 return "\(provider.displayName) \(percent)"
             }
             return "Usage Tracker: " + parts.joined(separator: ", ")
+        case .worstPercent, .monthlyCost:
+            return "Usage Tracker: \(model.menuBarText.isEmpty ? "estado" : model.menuBarText)"
         }
-        return "Usage Tracker: \(model.menuBarText.isEmpty ? "estado" : model.menuBarText)"
     }
 }
 
@@ -77,7 +92,6 @@ struct PopoverView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @State private var tab: PopoverTab = .usage
-    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,25 +109,19 @@ struct PopoverView: View {
     }
 
     private var isLoading: Bool {
-        guard !showSettings else { return false }
-        return tab == .models ? model.isCatalogLoading : model.isRefreshing
+        tab == .models ? model.isCatalogLoading : model.isRefreshing
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            if showSettings {
-                Text("Ajustes")
-                    .font(.headline)
-            } else {
-                Picker("", selection: $tab) {
-                    ForEach(PopoverTab.allCases) { item in
-                        Text(item.title).tag(item)
-                    }
+            Picker("", selection: $tab) {
+                ForEach(PopoverTab.allCases) { item in
+                    Text(item.title).tag(item)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 190)
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 190)
 
             Spacer()
 
@@ -122,32 +130,30 @@ struct PopoverView: View {
                     .controlSize(.small)
             }
 
-            if !showSettings {
-                Button {
-                    Task {
-                        if tab == .models {
-                            await model.refreshCatalog()
-                        } else {
-                            await model.refresh()
-                        }
-                    }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(isLoading)
-                .help(tab == .models ? "Actualizar catálogo de modelos" : "Actualizar uso")
-            }
-
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showSettings.toggle()
+                Task {
+                    if tab == .models {
+                        await model.refreshCatalog()
+                    } else {
+                        await model.refresh()
+                    }
                 }
-            } label: {
-                Image(systemName: showSettings ? "xmark.circle" : "gearshape")
+            }
+            label: {
+                Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help(showSettings ? "Cerrar ajustes" : "Ajustes")
+            .disabled(isLoading)
+            .help(tab == .models ? "Actualizar catálogo de modelos" : "Actualizar uso")
+
+            Button {
+                openDashboard(.settings)
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Abrir ajustes completos")
+            .accessibilityLabel("Abrir ajustes completos")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -156,12 +162,7 @@ struct PopoverView: View {
     @ViewBuilder
     private var content: some View {
         Group {
-            if showSettings {
-                PopoverSettingsView(model: model) { destination in
-                    showSettings = false
-                    openDashboard(destination)
-                }
-            } else if tab == .models {
+            if tab == .models {
                 ModelsCatalogView(model: model, compact: true)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -169,7 +170,7 @@ struct PopoverView: View {
                 usageContent
             }
         }
-        .frame(height: showSettings ? 340 : 580)
+        .frame(height: 580)
     }
 
     private var usageContent: some View {
@@ -205,7 +206,7 @@ struct PopoverView: View {
                             .foregroundStyle(.secondary)
                         Text("No hay proveedores activos")
                             .font(.subheadline.weight(.semibold))
-                        Text("Actívalos desde el engranaje o desde Ajustes para ver su uso.")
+                        Text("Actívalos desde Ajustes para ver su uso.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -264,10 +265,7 @@ struct PopoverView: View {
     }
 
     private var footerText: String {
-        if showSettings {
-            return "Proveedores y preferencias"
-        }
-        return tab == .models ? model.catalogUpdatedText : model.lastRefreshText
+        tab == .models ? model.catalogUpdatedText : model.lastRefreshText
     }
 
     private var footer: some View {
@@ -313,117 +311,5 @@ struct PopoverView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             openWindow(id: "dashboard")
         }
-    }
-}
-
-// MARK: - Ajustes rápidos del panel
-
-struct PopoverSettingsView: View {
-    @ObservedObject var model: AppModel
-    var openDashboard: (DashboardTab) -> Void
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(ProviderID.allCases) { provider in
-                    if let index = model.settings.subscriptions.firstIndex(where: { $0.id == provider }) {
-                        CompactSubscriptionCard(
-                            provider: provider,
-                            subscription: $model.settings.subscriptions[index]
-                        )
-                    }
-                }
-
-                general
-
-                Button {
-                    openDashboard(.settings)
-                } label: {
-                    Label("Ajustes completos…", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            .padding(12)
-        }
-    }
-
-    private var general: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("General")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                HStack(spacing: 5) {
-                    Text("Refrescar")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Picker("Refrescar", selection: $model.settings.refreshMinutes) {
-                        Text("1 min").tag(1)
-                        Text("5 min").tag(5)
-                        Text("15 min").tag(15)
-                        Text("30 min").tag(30)
-                        Text("60 min").tag(60)
-                    }
-                    .labelsHidden()
-                    .frame(width: 92)
-                }
-
-                HStack(spacing: 5) {
-                    Text("Moneda")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Picker("Moneda", selection: $model.settings.currency) {
-                        ForEach(Currency.allCases) { currency in
-                            Text(currency.label).tag(currency)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 92)
-                }
-
-                Spacer()
-            }
-
-            HStack(spacing: 16) {
-                Toggle("Alertas", isOn: $model.settings.alertsEnabled)
-                    .help("Avisar al cruzar el 75 %, 90 % o 100 % de la cuota")
-                Toggle("Al inicio", isOn: Binding(
-                    get: { model.settings.launchAtLogin },
-                    set: { model.setLaunchAtLogin($0) }
-                ))
-                .help("Abrir Usage Tracker al iniciar sesión")
-                Toggle("Estimado", isOn: $model.settings.showEstimates)
-                    .help("Mostrar el valor de uso estimado en el resumen")
-                Spacer()
-            }
-            .font(.caption2)
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-        }
-        .card(padding: 10)
-    }
-}
-
-struct CompactSubscriptionCard: View {
-    let provider: ProviderID
-    @Binding var subscription: Subscription
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ProviderIcon(provider: provider, size: 24)
-            Text(provider.displayName)
-                .font(.subheadline.weight(.semibold))
-
-            Spacer()
-
-            Toggle("Activa", isOn: $subscription.isActive)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .help("Mostrar este proveedor en Uso y alertas")
-        }
-        .card(padding: 10)
     }
 }

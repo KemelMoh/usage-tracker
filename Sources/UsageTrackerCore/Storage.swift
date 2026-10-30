@@ -116,7 +116,10 @@ public enum StateStore {
             normalized.alertKeys.removeValue(forKey: key)
         }
 
-        normalized.settings.refreshMinutes = max(1, normalized.settings.refreshMinutes)
+        normalized.settings.refreshMinutes = max(
+            AppSettings.minimumRefreshMinutes,
+            normalized.settings.refreshMinutes
+        )
         if normalized.settings.menuBarMode == .monthlyCost {
             normalized.settings.menuBarMode = .compact
         }

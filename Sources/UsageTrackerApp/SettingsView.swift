@@ -41,11 +41,16 @@ struct SettingsView: View {
     private var general: some View {
         SettingsSection(title: "General", subtitle: "Refresco y apariencia") {
             Picker("Refrescar cada", selection: $model.settings.refreshMinutes) {
-                Text("1 minuto").tag(1)
-                Text("5 minutos").tag(5)
-                Text("15 minutos").tag(15)
-                Text("30 minutos").tag(30)
-                Text("60 minutos").tag(60)
+                ForEach(AppSettings.refreshMinuteOptions, id: \.self) { minutes in
+                    Text("\(minutes) minutos").tag(minutes)
+                }
+            }
+            .frame(maxWidth: 320, alignment: .leading)
+
+            Picker("Tema", selection: $model.settings.appearance) {
+                ForEach(AppAppearance.allCases) { appearance in
+                    Text(appearance.label).tag(appearance)
+                }
             }
             .frame(maxWidth: 320, alignment: .leading)
 
@@ -235,21 +240,21 @@ struct SettingsView: View {
 
     private var about: some View {
         SettingsSection(title: "Acerca de Usage Tracker", subtitle: "Versión \(model.appVersion)") {
-            Text("Usage Tracker centraliza el uso de OpenCode Go, GitHub Copilot, Claude y LiteLLM en la barra de menús de macOS.")
+            Text("Usage Tracker centraliza el uso de OpenCode Go, GitHub Copilot, Anthropic (Claude Code) y LiteLLM en la barra de menús de macOS.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Sin backend, sin telemetría y sin sincronización propia en nube. Los endpoints de LiteLLM se inyectan desde la configuración privada de build. Los demás hosts de red se limitan a opencode.ai, api.github.com, api.anthropic.com, models.dev, github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. El SSO se conserva en el almacén WebKit de esta app; las demás credenciales se leen del Keychain o de las herramientas locales y se mantienen en memoria durante la petición.")
+            Text("Sin backend, sin telemetría y sin sincronización propia en nube. Los endpoints de LiteLLM se inyectan desde la configuración privada de build. Los demás hosts de red se limitan a opencode.ai, api.github.com, api.anthropic.com, models.dev, github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. El SSO se conserva en el almacén WebKit de esta app; las claves detectadas se mantienen solo en memoria mientras la app está abierta.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("El plan y el precio se detectan automáticamente cuando el proveedor lo expone (Claude, Copilot y LiteLLM). OpenCode Go no publica el plan en su API, así que se asume Go y puedes cambiarlo. El catálogo de modelos combina OpenCode Go, los deployments/precios públicos del proxy LiteLLM y metadatos de models.dev; se cachea 24 horas.")
+            Text("El plan y el precio se detectan automáticamente cuando el proveedor lo expone (Anthropic, Copilot y LiteLLM). OpenCode Go no publica el plan en su API, así que se asume Go y puedes cambiarlo. El catálogo de modelos combina OpenCode Go, los deployments/precios públicos del proxy LiteLLM y metadatos de models.dev; se cachea 24 horas.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("El historial de Claude se calcula localmente a partir de ~/.claude/stats-cache.json y de las transcripciones de sesiones. El de OpenCode, de su base SQLite en modo solo lectura. No se lee el contenido de los mensajes, solo los campos de uso.")
+            Text("El historial local de Claude Code se calcula a partir de ~/.claude/stats-cache.json y de las transcripciones de sesiones. El de OpenCode, de su base SQLite en modo solo lectura. No se lee el contenido de los mensajes, solo los campos de uso.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

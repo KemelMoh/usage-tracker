@@ -17,7 +17,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .opencodeGo: return "OpenCode Go"
         case .copilot: return "GitHub Copilot"
-        case .claude: return "Claude"
+        case .claude: return "Anthropic"
         case .liteLLM: return "LiteLLM"
         }
     }
@@ -26,7 +26,7 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .opencodeGo: return "OC"
         case .copilot: return "CP"
-        case .claude: return "CL"
+        case .claude: return "AN"
         case .liteLLM: return "LLM"
         }
     }
@@ -585,13 +585,33 @@ public enum Currency: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum AppAppearance: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .system: return "Sistema"
+        case .light: return "Claro"
+        case .dark: return "Oscuro"
+        }
+    }
+}
+
 public struct AppSettings: Codable, Sendable {
+    public static let minimumRefreshMinutes = 5
+    public static let refreshMinuteOptions = [minimumRefreshMinutes, 15, 30, 60]
+
     public var refreshMinutes: Int
     public var menuBarMode: MenuBarMode
     public var alertsEnabled: Bool
     public var alertThresholds: [Double]
     public var launchAtLogin: Bool
     public var currency: Currency
+    public var appearance: AppAppearance
     public var showEstimates: Bool
     public var subscriptions: [Subscription]
 
@@ -602,17 +622,48 @@ public struct AppSettings: Codable, Sendable {
         alertThresholds: [Double] = [75, 90, 100],
         launchAtLogin: Bool = false,
         currency: Currency = .usd,
+        appearance: AppAppearance = .system,
         showEstimates: Bool = true,
         subscriptions: [Subscription] = ProviderID.allCases.map { Subscription.default(for: $0) }
     ) {
-        self.refreshMinutes = refreshMinutes
+        self.refreshMinutes = max(Self.minimumRefreshMinutes, refreshMinutes)
         self.menuBarMode = menuBarMode
         self.alertsEnabled = alertsEnabled
         self.alertThresholds = alertThresholds
         self.launchAtLogin = launchAtLogin
         self.currency = currency
+        self.appearance = appearance
         self.showEstimates = showEstimates
         self.subscriptions = subscriptions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case refreshMinutes
+        case menuBarMode
+        case alertsEnabled
+        case alertThresholds
+        case launchAtLogin
+        case currency
+        case appearance
+        case showEstimates
+        case subscriptions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            refreshMinutes: try container.decodeIfPresent(Int.self, forKey: .refreshMinutes)
+                ?? Self.minimumRefreshMinutes,
+            menuBarMode: try container.decodeIfPresent(MenuBarMode.self, forKey: .menuBarMode) ?? .worstPercent,
+            alertsEnabled: try container.decodeIfPresent(Bool.self, forKey: .alertsEnabled) ?? true,
+            alertThresholds: try container.decodeIfPresent([Double].self, forKey: .alertThresholds) ?? [75, 90, 100],
+            launchAtLogin: try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false,
+            currency: try container.decodeIfPresent(Currency.self, forKey: .currency) ?? .usd,
+            appearance: try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system,
+            showEstimates: try container.decodeIfPresent(Bool.self, forKey: .showEstimates) ?? true,
+            subscriptions: try container.decodeIfPresent([Subscription].self, forKey: .subscriptions)
+                ?? ProviderID.allCases.map { Subscription.default(for: $0) }
+        )
     }
 
     public static var `default`: AppSettings {

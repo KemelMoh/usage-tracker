@@ -10,18 +10,30 @@ struct UsageTrackerApp: App {
     var body: some Scene {
         MenuBarExtra {
             PopoverView(model: model)
+                .preferredColorScheme(appearanceColorScheme)
         } label: {
             MenuBarLabel(model: model)
+                .preferredColorScheme(appearanceColorScheme)
         }
         .menuBarExtraStyle(.window)
 
         Window("Usage Tracker", id: "dashboard") {
             DashboardView(model: model)
+                .preferredColorScheme(appearanceColorScheme)
         }
         .defaultSize(width: 1_000, height: 680)
 
         Settings {
             SettingsView(model: model)
+                .preferredColorScheme(appearanceColorScheme)
+        }
+    }
+
+    private var appearanceColorScheme: ColorScheme? {
+        switch model.settings.appearance {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 }

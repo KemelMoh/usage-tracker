@@ -248,10 +248,16 @@ public enum LiteLLMKeyLocator {
     private static let shellProfiles = [".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile"]
     private static let exportPrefix = "export ANTHROPIC_AUTH_TOKEN="
 
-    /// Si el usuario deniega el acceso al Keychain, macOS vuelve a preguntarlo
-    /// en cada intento. Se recuerda el fallo para no molestarlo en cada refresco.
+    /// La clave detectada se conserva solo en memoria durante esta ejecución.
+    /// Volver a leer un item de otra app en cada refresco puede reabrir el diálogo
+    /// de autorización del Keychain, especialmente en builds firmadas ad-hoc.
     private static let stateLock = NSLock()
-    private static var keychainAccessDenied = false
+    private enum TrackerKeychainResult {
+        case found(String)
+        case missing
+        case denied
+    }
+    private static var trackerKeychainResults: [String: TrackerKeychainResult] = [:]
 
     public static func detect(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
         guard let proxyHost = EndpointConfiguration.liteLLMProxyBaseURL?.host else { return nil }
@@ -261,29 +267,38 @@ public enum LiteLLMKeyLocator {
                 return key
             }
         }
-        return keyFromTrackerKeychain()
+        return keyFromTrackerKeychain(proxyHost: proxyHost)
     }
 
     /// La clave que guarda Claude Usage Tracker. Es la fuente más probable:
     /// esa app ya seauthenticó en el proxy y guardó la clave allí.
-    private static func keyFromTrackerKeychain() -> String? {
+    private static func keyFromTrackerKeychain(proxyHost: String) -> String? {
         stateLock.lock()
-        let denied = keychainAccessDenied
-        stateLock.unlock()
-        guard !denied else { return nil }
+        defer { stateLock.unlock() }
+
+        if let cached = trackerKeychainResults[proxyHost] {
+            switch cached {
+            case .found(let value): return value
+            case .missing, .denied: return nil
+            }
+        }
 
         let result = KeychainStore.readWithStatus(service: trackerService, account: trackerAccount)
         if result.status == errSecAuthFailed || result.status == errSecInteractionNotAllowed {
-            stateLock.lock()
-            keychainAccessDenied = true
-            stateLock.unlock()
+            trackerKeychainResults[proxyHost] = .denied
             return nil
         }
-        guard let value = result.value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
+        if result.status == errSecItemNotFound {
+            trackerKeychainResults[proxyHost] = .missing
             return nil
         }
-        return usable(value)
+        guard result.status == errSecSuccess,
+              let rawValue = result.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let value = usable(rawValue) else {
+            return nil
+        }
+        trackerKeychainResults[proxyHost] = .found(value)
+        return value
     }
 
     /// `~/.claude/settings.json` y los perfiles `~/.claude-*`.

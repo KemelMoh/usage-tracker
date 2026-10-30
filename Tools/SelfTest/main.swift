@@ -50,6 +50,10 @@ checkEqual(QuotaWindow(id: "w", label: "W", usedPercent: -5).clampedPercent, 0, 
 checkEqual(QuotaWindow(id: "w", label: "W", usedPercent: 25).remainingPercent, 75, "porcentaje restante")
 
 let defaultSettings = AppSettings.default
+checkEqual(defaultSettings.refreshMinutes, 5, "el refresco mínimo son 5 minutos")
+checkEqual(AppSettings.refreshMinuteOptions, [5, 15, 30, 60], "opciones de refresco sin intervalo de 1 minuto")
+checkEqual(AppSettings(refreshMinutes: 1).refreshMinutes, 5, "un intervalo menor se ajusta al mínimo")
+checkEqual(defaultSettings.appearance, .system, "la apariencia por defecto sigue al sistema")
 checkEqual(defaultSettings.subscriptions.count, ProviderID.allCases.count, "suscripción por proveedor")
 checkClose(defaultSettings.totalMonthlyUSD, 49, "coste mensual por defecto")
 checkEqual(defaultSettings.activeSubscriptions.count, 4, "suscripciones activas por defecto")
@@ -66,6 +70,20 @@ check(!customSettings.activeProviderIDs.contains(.claude), "un proveedor desacti
 check(customSettings.activeProviderIDs.contains(.copilot), "un proveedor activo sigue presente")
 checkEqual(CredentialStatus.disabled.label, "Desactivada", "etiqueta de credencial desactivada")
 checkEqual(customSettings.subscription(for: .claude)?.planName, "Pro", "búsqueda de suscripción")
+checkEqual(ProviderID.claude.displayName, "Anthropic", "nombre visible del proveedor Anthropic")
+checkEqual(ProviderID.claude.shortName, "AN", "abreviatura visible de Anthropic")
+
+do {
+    let legacySettings = try JSONDecoder().decode(
+        AppSettings.self,
+        from: Data("{\"refreshMinutes\":1}".utf8)
+    )
+    checkEqual(legacySettings.refreshMinutes, 5, "ajusta el antiguo refresco de 1 minuto")
+    checkEqual(legacySettings.appearance, .system, "un ajuste antiguo conserva la apariencia del sistema")
+    checkEqual(legacySettings.subscriptions.count, ProviderID.allCases.count, "ajustes antiguos reciben suscripciones por defecto")
+} catch {
+    check(false, "decodificación de ajustes antiguos: \(error)")
+}
 
 let expired = ClaudeCredentials(accessToken: "token", expiresAt: Date().addingTimeInterval(-3_600))
 check(expired.isExpired, "token caducado detectado")
@@ -1329,7 +1347,7 @@ section("Persistencia")
 
 let exportDate = Date(timeIntervalSince1970: 1_700_000_000)
 let payload = ExportPayload(
-    settings: AppSettings(currency: .eur),
+    settings: AppSettings(currency: .eur, appearance: .dark),
     history: [
         "claude": [
             DailyUsage(
@@ -1349,6 +1367,7 @@ do {
     let data = try StateStore.encodeExport(payload)
     let decoded = try StateStore.decodeExport(data)
     checkEqual(decoded.settings.currency, .eur, "moneda exportada")
+    checkEqual(decoded.settings.appearance, .dark, "tema oscuro exportado")
     checkEqual(decoded.history["claude"]?.first?.tokens.total, 150, "tokens exportados")
     checkEqual(decoded.history["claude"]?.first?.costUSD, 0.25, "coste exportado")
     checkEqual(decoded.alerts.first?.severity, .warning, "alertas exportadas")

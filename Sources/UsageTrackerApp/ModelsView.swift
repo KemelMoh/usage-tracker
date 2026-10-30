@@ -24,14 +24,19 @@ struct ModelsCatalogView: View {
     }
 
     private var providersWithoutRecommendations: [ProviderID] {
-        recommendationIndex.providersBelowMinimum
+        recommendationIndex.providersBelowMinimum.filter {
+            model.subscription(for: $0).isActive
+        }
     }
 
     /// Solo los proveedores que tienen modelos en el catálogo. Un proveedor sin
     /// modelos no aparece en el filtro: elegirlo solo llevaría a una lista vacía.
     private var availableProviders: [ProviderID] {
+        let activeProviders = Set(model.activeProviders)
         let withModels = Set(model.catalogModels.map(\.provider))
-        return ProviderID.allCases.filter { withModels.contains($0) }
+        return ProviderID.allCases.filter {
+            activeProviders.contains($0) && withModels.contains($0)
+        }
     }
 
     /// Filtra y agrupa el catálogo en una sola pasada.
@@ -45,11 +50,13 @@ struct ModelsCatalogView: View {
         let recommendedIDs = recommendationIndex.recommendedModelIDs
         let order = recommendationIndex.orderByModelID
         let onlyRecommended = model.modelRecommendationsEnabled && showRecommendedOnly
+        let activeProviders = Set(model.activeProviders)
 
         var buckets: [ProviderID: [CatalogModel]] = [:]
         var total = 0
 
         for entry in model.catalogModels {
+            guard activeProviders.contains(entry.provider) else { continue }
             if let providerFilter, entry.provider != providerFilter { continue }
             if !search.isEmpty {
                 let name = entry.name.lowercased()
@@ -76,10 +83,17 @@ struct ModelsCatalogView: View {
         // El filtrado se resuelve una única vez por pasada de render y se
         // comparte entre el contador, la lista y los avisos.
         let result = makeGroups()
-        if compact {
-            compactBody(result)
-        } else {
-            fullBody(result)
+        return Group {
+            if compact {
+                compactBody(result)
+            } else {
+                fullBody(result)
+            }
+        }
+        .onChange(of: model.activeProviders) { activeProviders in
+            if let providerFilter, !activeProviders.contains(providerFilter) {
+                self.providerFilter = nil
+            }
         }
     }
 
@@ -93,6 +107,8 @@ struct ModelsCatalogView: View {
 
             if model.catalogModels.isEmpty {
                 placeholder
+            } else if result.groups.isEmpty {
+                emptyModelState
             } else {
                 ScrollView {
                     listContent(result.groups)
@@ -132,6 +148,8 @@ struct ModelsCatalogView: View {
 
                 if model.catalogModels.isEmpty {
                     placeholder
+                } else if result.groups.isEmpty {
+                    emptyModelState
                 } else {
                     listContent(result.groups)
                 }
@@ -140,6 +158,33 @@ struct ModelsCatalogView: View {
             }
             .padding(24)
         }
+    }
+
+    private var emptyModelState: some View {
+        let activeProviders = Set(model.activeProviders)
+        let hasModelsForActiveProviders = model.catalogModels.contains {
+            activeProviders.contains($0.provider)
+        }
+        let title: String
+        let message: String
+
+        if activeProviders.isEmpty {
+            title = "Sin suscripciones activas"
+            message = "Activa al menos un proveedor en Suscripciones para ver sus modelos."
+        } else if hasModelsForActiveProviders {
+            title = "Sin resultados"
+            message = "No hay modelos que coincidan con los filtros actuales."
+        } else {
+            title = "Modelos no disponibles"
+            message = "El catálogo no tiene modelos para tus proveedores activos."
+        }
+
+        return EmptyState(
+            symbol: "square.stack.3d.up.slash",
+            title: title,
+            message: message
+        )
+        .card(padding: 16)
     }
 
     private func controls(_ totalCount: Int) -> some View {
