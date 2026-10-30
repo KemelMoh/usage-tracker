@@ -517,11 +517,17 @@ final class AppModel: ObservableObject {
             }
         }
 
+        // Capture immutable credential snapshots for concurrent provider tasks.
+        // `credentials` is updated later by the LiteLLM fallback path.
+        let openCodeCredential = credentials.openCodeKey
+        let copilotCredential = credentials.copilotToken
+        let claudeCredential = credentials.claude
+
         var fetchedSnapshots = await withTaskGroup(of: ProviderSnapshot.self) { group in
             if activeSet.contains(.opencodeGo) {
                 group.addTask {
                     await OpenCodeGoClient().fetch(
-                        apiKey: credentials.openCodeKey,
+                        apiKey: openCodeCredential,
                         planName: openCodePlan
                     )
                 }
@@ -529,7 +535,7 @@ final class AppModel: ObservableObject {
             if activeSet.contains(.copilot) {
                 group.addTask {
                     await CopilotClient().fetch(
-                        token: credentials.copilotToken,
+                        token: copilotCredential,
                         fallbackPlan: copilotPlan
                     )
                 }
@@ -537,7 +543,7 @@ final class AppModel: ObservableObject {
             if activeSet.contains(.claude) {
                 group.addTask {
                     await ClaudeClient().fetch(
-                        credentials: credentials.claude,
+                        credentials: claudeCredential,
                         fallbackPlan: claudePlan
                     )
                 }
