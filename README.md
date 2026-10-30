@@ -210,8 +210,8 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.2.3
-git push origin v0.2.3
+git tag v0.2.4
+git push origin v0.2.4
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
@@ -219,7 +219,7 @@ Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. Tambié
 Las notas de la release se generan solas a partir de los commits, agrupadas por tipo. Para verlas antes de publicar:
 
 ```bash
-./scripts/release-notes.sh 0.2.3
+./scripts/release-notes.sh 0.2.4
 ```
 
 Si el mensaje de un commit empieza por `feat:`, `fix:`, `perf:` o `docs:`, el commit va a la sección correspondiente. Los que no llevan prefijo se clasifican por palabras clave.
