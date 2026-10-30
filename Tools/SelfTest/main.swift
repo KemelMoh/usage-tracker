@@ -1062,6 +1062,63 @@ do {
     check(false, "serializacion del historial nuevo de Copilot: \(error)")
 }
 
+// El merger crea un punto por dia con consumo y omite los dias sin consumo.
+let mergerDay1 = DateUtils.parseDay("2026-10-27")!
+let mergerDay2 = DateUtils.parseDay("2026-10-28")!
+let mergerDay3 = DateUtils.parseDay("2026-10-29")!
+
+// Primer punto: sin referencia anterior, todo el acumulado es de ese dia.
+var mergerPoints = CopilotHistoryMerger.merge(
+    existing: [], cumulative: 100, now: mergerDay1
+)
+checkEqual(mergerPoints.count, 1, "el primer punto crea un registro")
+checkEqual(mergerPoints.first?.creditsUsed, 100, "el primer punto cuenta todo el acumulado")
+
+// Dia con consumo: se registra la diferencia.
+mergerPoints = CopilotHistoryMerger.merge(
+    existing: mergerPoints, cumulative: 250, now: mergerDay2
+)
+checkEqual(mergerPoints.count, 2, "un dia con consumo anade registro")
+checkEqual(mergerPoints.last?.creditsUsed, 150, "el consumo es la diferencia de acumulados")
+
+// Dia sin cambio en el acumulado: no se registra, igual que OpenCode con un
+// dia sin sesiones.
+mergerPoints = CopilotHistoryMerger.merge(
+    existing: mergerPoints, cumulative: 250, now: mergerDay3
+)
+checkEqual(mergerPoints.count, 2, "un dia sin consumo no anade registro")
+
+// Actualizar el mismo dia con un acumulado mayor recalcula su consumo.
+mergerPoints = CopilotHistoryMerger.merge(
+    existing: mergerPoints, cumulative: 400, now: mergerDay3
+)
+checkEqual(mergerPoints.count, 3, "actualizar el dia actual anade el registro")
+checkEqual(mergerPoints.last?.creditsUsed, 150, "el consumo del dia se recalcula")
+checkEqual(mergerPoints.last?.creditsCumulative, 400, "el acumulado se actualiza")
+
+// Si el acumulado no cambia desde la ultima vez que se vio, no hubo consumo
+// ese dia y el registro se quita, para no dejar ceros falsos en la serie.
+let sinCambio = CopilotHistoryMerger.merge(
+    existing: mergerPoints, cumulative: 400, now: mergerDay3
+)
+checkEqual(sinCambio.count, 2, "un dia guardado sin cambio en el acumulado se quita")
+check(
+    !sinCambio.contains { DateUtils.isSameDay($0.date, mergerDay3) },
+    "el dia sin consumo desaparece del historial"
+)
+
+// Reinicio del ciclo: el acumulado baja y cuenta entero como consumo.
+let reinicio = CopilotHistoryMerger.merge(
+    existing: mergerPoints, cumulative: 20, now: mergerDay3.addingTimeInterval(86_400)
+)
+checkEqual(reinicio.last?.creditsUsed, 20, "un ciclo reiniciado cuenta el acumulado entero")
+
+// Un dia migrado, sin consumo diario, no suma al valor de uso.
+let soloMigrado = [
+    DailyUsage(date: mergerDay1, provider: .copilot, creditsCumulative: 17956)
+].compactMap(\.creditsUsed).reduce(0, +)
+checkClose(soloMigrado, 0, "un dia migrado sin consumo diario no suma al valor")
+
 // MARK: - Actualizaciones
 
 section("Actualizaciones")

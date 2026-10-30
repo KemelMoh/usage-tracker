@@ -1,5 +1,90 @@
 import Foundation
 
+// MARK: - Copilot
+
+/// Registro diario de AI credits de GitHub Copilot.
+///
+/// La API de Copilot no expone historial por usuario, solo el acumulado de
+/// AI credits del ciclo de cuota. Para tener una serie diaria se guarda el
+/// acumulado de cada dia y el consumo de ese dia, que es la diferencia con
+/// el anterior.
+///
+/// Si el acumulado no ha cambiado respecto al ultimo registro, no se crea
+/// uno nuevo: ese dia no hubo consumo y la serie lo omite, igual que
+/// OpenCode con un dia sin sesiones. Los dias migrados del formato antiguo
+/// solo tienen el acumulado, sin el consumo diario, asi que tampoco se
+/// pintan.
+public enum CopilotHistoryMerger {
+    /// Devuelve los puntos actualizados con el acumulado actual.
+    ///
+    /// - Parameters:
+    ///   - existing: Puntos ya guardados.
+    ///   - cumulative: AI credits acumulados del ciclo segun la API.
+    ///   - now: Momento al que pertenece el punto.
+    public static func merge(
+        existing: [DailyUsage],
+        cumulative: Double,
+        now: Date = Date()
+    ) -> [DailyUsage] {
+        let today = DateUtils.startOfDay(now)
+        var points = existing
+
+        // Ultimo acumulado conocido de un dia anterior a hoy.
+        let previous = points
+            .filter { DateUtils.isSameDay($0.date, today) == false }
+            .compactMap(\.creditsCumulative)
+            .max()
+
+        // El dia ya tiene registro: se actualiza con el consumo de hoy. Si el
+        // acumulado no ha cambiado desde la ultima vez que se vio, el dia no
+        // registro consumo y se quita, para que la serie no muestre ceros
+        // falsos.
+        if let index = points.firstIndex(where: { DateUtils.isSameDay($0.date, today) }) {
+            let lastSeen = points[index].creditsCumulative ?? previous
+            if let lastSeen, cumulative == lastSeen {
+                points.remove(at: index)
+                return HistoryMerger.merge(existing: points, incoming: [])
+            }
+            let daily = dailyConsumed(cumulative: cumulative, previous: previous)
+            points[index] = point(day: today, daily: daily, cumulative: cumulative)
+            return HistoryMerger.merge(existing: points, incoming: [])
+        }
+
+        // Dia nuevo. Sin un acumulado anterior no hay con que comparar, asi
+        // que todo el acumulado se cuenta como consumo de hoy.
+        guard let previous else {
+            points.append(point(day: today, daily: cumulative, cumulative: cumulative))
+            return HistoryMerger.merge(existing: points, incoming: [])
+        }
+
+        // Sin cambio en el acumulado no hubo consumo: no se registra el dia.
+        guard cumulative != previous else { return points }
+
+        let daily = dailyConsumed(cumulative: cumulative, previous: previous)
+        points.append(point(day: today, daily: daily, cumulative: cumulative))
+        return HistoryMerger.merge(existing: points, incoming: [])
+    }
+
+    /// Consumo de un dia a partir del acumulado actual y el anterior.
+    ///
+    /// Si el acumulado baja es porque la cuota se reinicio, asi que el
+    /// acumulado entero se cuenta como consumo del dia.
+    private static func dailyConsumed(cumulative: Double, previous: Double?) -> Double {
+        guard let previous else { return cumulative }
+        return cumulative >= previous ? cumulative - previous : cumulative
+    }
+
+    private static func point(day: Date, daily: Double, cumulative: Double) -> DailyUsage {
+        DailyUsage(
+            date: day,
+            provider: .copilot,
+            costUSD: daily * PricingCatalog.copilotCreditUSD,
+            creditsUsed: daily,
+            creditsCumulative: cumulative
+        )
+    }
+}
+
 // MARK: - Merge
 
 public enum HistoryMerger {
