@@ -183,7 +183,7 @@ Para desarrollo local, copia `Resources/Endpoints.example.plist` a `Resources/En
 - **Anthropic**: la API de uso de Claude Code es interna y puede cambiar. Si el token OAuth caduca, no se refresca solo.
 - **Copilot Business/Enterprise**: no hay desglose diario por usuario ni por modelo en la API. El precio es por asiento y puede estar pagado por la organización.
 - **OpenCode Go**: el plan (Go / Go Plus) se elige manualmente; la API de uso no lo devuelve.
-- **LiteLLM**: el portal de cuenta suele retrasar los datos alrededor de una hora. El inicio de sesión se realiza en WebKit; si la sesión requiere interacción, hay que volver a iniciar sesión desde Suscripciones. Sin sesión SSO, la clave LiteLLM solo permite mostrar el consumo y el límite del presupuesto (incluido cuando el proxy responde 422 por exceso); no ofrece tier, reinicio, uso diario ni desglose por modelo.
+- **LiteLLM**: el portal de cuenta suele retrasar los datos alrededor de una hora. El inicio de sesión se realiza en WebKit; si la sesión requiere interacción, hay que volver a iniciar sesión desde el aviso de Resumen o desde Suscripciones. Sin sesión SSO, la clave LiteLLM solo permite mostrar el consumo y el límite del presupuesto (incluido cuando el proxy responde 422 por exceso); no ofrece tier, reinicio, uso diario ni desglose por modelo.
 - **Catálogo de modelos**: se actualiza como máximo una vez al día. Un modelo muy reciente puede aparecer en vivo sin precio publicado hasta que `models.dev` lo indexe. Los modelos gratuitos publicados en `models.dev` se muestran aunque el listado en vivo de OpenCode todavía no los incluya. `models.dev` tampoco publica políticas de datos, así que la app no puede indicar si un modelo entrena con tus datos; consulta la política del proveedor.
 - **Recomendaciones**: usan `release_date`/`last_updated` de `models.dev`. Si un modelo no tiene fecha, no se recomienda. Los modelos `deprecated` se excluyen, aunque pueden seguir apareciendo en la lista completa. Los topes por 1M (entrada/salida) dependen del proveedor: en **Anthropic** y **Copilot**, Light ≤ 0,50/2,50 USD, Medium ≤ 2,50/12,50 USD y Ultra ≤ 5/25 USD; en **OpenCode Go**, Light ≤ 0,40/1,60 USD, Medium ≤ 1,50/6 USD y Ultra ≤ 2/10 USD. La feature flag está en **Ajustes → General → Recomendaciones de modelos (beta)**.
 - **Precios**: son de referencia y se pueden editar por suscripción. La conversión a EUR usa un tipo de cambio interno fijo (0,92); no es configurable desde la interfaz.
@@ -219,8 +219,8 @@ build.sh                      Compila, empaqueta y firma Usage Tracker.app
 El workflow `.github/workflows/release.yml` se dispara con tags `v*`:
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. También se puede lanzar manualmente desde Actions indicando la versión; en ese caso deja el DMG como artifact pero no publica una release.
@@ -228,7 +228,7 @@ Compila, ejecuta los self-tests, genera el DMG y crea la GitHub Release. Tambié
 Las notas de la release se generan solas a partir de los commits, agrupadas por tipo. Para verlas antes de publicar:
 
 ```bash
-./scripts/release-notes.sh 0.3.0
+./scripts/release-notes.sh 0.3.1
 ```
 
 Si el mensaje de un commit empieza por `feat:`, `fix:`, `perf:` o `docs:`, el commit va a la sección correspondiente. Los que no llevan prefijo se clasifican por palabras clave.

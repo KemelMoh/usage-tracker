@@ -116,6 +116,12 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
 
+                if model.activeProviders.contains(.liteLLM),
+                   model.liteLLMSSOStatus != .unknown,
+                   model.liteLLMSSOStatus != .signedIn {
+                    LiteLLMSSOPrompt(model: model)
+                }
+
                 if let error = model.lastError {
                     ErrorBanner(message: error, onDismiss: model.clearError)
                 }
@@ -227,6 +233,83 @@ struct OverviewView: View {
     }
 }
 
+struct LiteLLMSSOPrompt: View {
+    @ObservedObject var model: AppModel
+
+    private var status: LiteLLMSSOStatus {
+        model.liteLLMSSOStatus
+    }
+
+    private var title: String {
+        switch status {
+        case .signedOut: return "Accede a LiteLLM con SSO"
+        case .needsLogin: return "Renueva tu sesión SSO de LiteLLM"
+        case .signingIn: return "Completa el inicio de sesión de LiteLLM"
+        case .unknown: return "Comprobando sesión de LiteLLM"
+        case .signedIn: return "Sesión LiteLLM activa"
+        }
+    }
+
+    private var message: String {
+        switch status {
+        case .signedOut:
+            return "Inicia sesión con SSO para consultar el nivel del presupuesto, la fecha de renovación y el historial detallado. Con solo la clave del proxy se muestra el consumo y el límite."
+        case .needsLogin:
+            return "La sesión ha caducado o necesita renovarse. Vuelve a iniciar sesión para recuperar el nivel del presupuesto y el historial detallado."
+        case .signingIn:
+            return "Completa el acceso en la ventana de LiteLLM que se ha abierto."
+        case .unknown, .signedIn:
+            return ""
+        }
+    }
+
+    private var tint: Color {
+        status == .needsLogin ? .orange : .blue
+    }
+
+    private var actionTitle: String {
+        status == .needsLogin ? "Renovar sesión SSO" : "Iniciar sesión SSO"
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: status == .needsLogin ? "exclamationmark.triangle.fill" : "person.crop.circle.badge.checkmark")
+                .font(.title3)
+                .foregroundStyle(tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if status == .signingIn {
+                    HStack(spacing: 7) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Abriendo…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button(actionTitle) {
+                        model.signInLiteLLM()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(tint)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(padding: 16)
+    }
+}
+
 struct ValueSummaryCard: View {
     @ObservedObject var model: AppModel
 
@@ -323,6 +406,13 @@ struct HistoryView: View {
         )
     }
 
+    private var shouldPromptForLiteLLMSSO: Bool {
+        provider == .liteLLM
+            && model.activeProviders.contains(.liteLLM)
+            && model.liteLLMSSOStatus != .unknown
+            && model.liteLLMSSOStatus != .signedIn
+    }
+
     var body: some View {
         let summary = summary
         ScrollView {
@@ -369,6 +459,9 @@ struct HistoryView: View {
                 }
 
                 if summary.entries.isEmpty {
+                    if shouldPromptForLiteLLMSSO {
+                        LiteLLMSSOPrompt(model: model)
+                    }
                     EmptyState(
                         symbol: "chart.bar.xaxis",
                         title: "Sin historial todavía",
@@ -500,6 +593,37 @@ struct HistoryView: View {
                  : "Tokens y coste estimado en el rango seleccionado")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            if shouldPromptForLiteLLMSSO {
+                HStack(spacing: 8) {
+                    Image(systemName: model.liteLLMSSOStatus == .needsLogin
+                          ? "exclamationmark.triangle.fill"
+                          : "person.crop.circle.badge.checkmark")
+                        .foregroundStyle(model.liteLLMSSOStatus == .needsLogin ? .orange : .blue)
+                    Text(model.liteLLMSSOStatus == .needsLogin
+                         ? "Renueva el SSO para actualizar el desglose por modelo."
+                         : "Inicia sesión con SSO para ver el desglose por modelo.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+
+                    if model.liteLLMSSOStatus == .signingIn {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button(model.liteLLMSSOStatus == .needsLogin
+                               ? "Renovar sesión SSO"
+                               : "Iniciar sesión SSO") {
+                            model.signInLiteLLM()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(model.liteLLMSSOStatus == .needsLogin ? .orange : .blue)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
 
             if aggregates.isEmpty {
                 Text(provider == .copilot
@@ -699,12 +823,16 @@ struct LiteLLMSSOSection: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
-                Button(model.liteLLMSSOStatus == .signingIn ? "Abriendo…" : "Iniciar sesión SSO") {
-                    model.signInLiteLLM()
+                if model.liteLLMSSOStatus == .signedOut
+                    || model.liteLLMSSOStatus == .needsLogin
+                    || model.liteLLMSSOStatus == .signingIn {
+                    Button(signInButtonTitle) {
+                        model.signInLiteLLM()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(model.liteLLMSSOStatus == .signingIn)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(model.liteLLMSSOStatus == .signingIn)
 
                 if model.liteLLMSSOStatus == .signedIn || model.liteLLMSSOStatus == .needsLogin {
                     Button("Cerrar sesión") {
@@ -714,6 +842,14 @@ struct LiteLLMSSOSection: View {
                     .controlSize(.small)
                 }
             }
+        }
+    }
+
+    private var signInButtonTitle: String {
+        switch model.liteLLMSSOStatus {
+        case .needsLogin: return "Renovar sesión SSO"
+        case .signingIn: return "Abriendo…"
+        case .unknown, .signedOut, .signedIn: return "Iniciar sesión SSO"
         }
     }
 }
