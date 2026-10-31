@@ -48,7 +48,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var recommendationIndex: RecommendationIndex = .empty
     @Published var lastError: String?
     @Published var dashboardTab: DashboardTab = .overview
-    @Published var modelRecommendationsEnabled: Bool = false {
+    @Published var modelRecommendationsEnabled: Bool = true {
         didSet {
             guard modelRecommendationsEnabled != oldValue else { return }
             UserDefaults.standard.set(
@@ -77,10 +77,11 @@ final class AppModel: ObservableObject {
     private let liteLLMSession = LiteLLMSession()
 
     init() {
+        let hasSavedState = FileManager.default.fileExists(atPath: StateStore.fileURL.path)
         let state = StateStore.load()
         self.settings = state.settings
         self.modelRecommendationsEnabled = UserDefaults.standard
-            .object(forKey: Self.modelRecommendationsKey) as? Bool ?? false
+            .object(forKey: Self.modelRecommendationsKey) as? Bool ?? true
         self.lastUpdateCheck = UserDefaults.standard
             .object(forKey: Self.lastUpdateCheckKey) as? Date
         self.snapshots = Self.decodeSnapshots(state.snapshots)
@@ -99,7 +100,13 @@ final class AppModel: ObservableObject {
             ? RecommendationIndex.build(from: catalogModels, now: clock.now)
             : .empty
 
-        self.settings.launchAtLogin = SMAppService.mainApp.status == .enabled
+        let launchAtLoginIsEnabled = SMAppService.mainApp.status == .enabled
+        if hasSavedState || launchAtLoginIsEnabled {
+            self.settings.launchAtLogin = launchAtLoginIsEnabled
+        } else {
+            // Apply the default to macOS as well as to the initial settings UI.
+            setLaunchAtLogin(settings.launchAtLogin)
+        }
 
         configureTimer()
 
@@ -289,7 +296,7 @@ final class AppModel: ObservableObject {
 
     var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.3.1"
+            ?? "0.3.2"
     }
 
     func checkForUpdatesIfNeeded() async {

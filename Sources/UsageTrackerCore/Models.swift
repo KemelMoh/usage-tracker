@@ -617,10 +617,10 @@ public struct AppSettings: Codable, Sendable {
 
     public init(
         refreshMinutes: Int = 5,
-        menuBarMode: MenuBarMode = .worstPercent,
+        menuBarMode: MenuBarMode = .compact,
         alertsEnabled: Bool = true,
         alertThresholds: [Double] = [75, 90, 100],
-        launchAtLogin: Bool = false,
+        launchAtLogin: Bool = true,
         currency: Currency = .usd,
         appearance: AppAppearance = .system,
         showEstimates: Bool = true,
@@ -654,10 +654,10 @@ public struct AppSettings: Codable, Sendable {
         self.init(
             refreshMinutes: try container.decodeIfPresent(Int.self, forKey: .refreshMinutes)
                 ?? Self.minimumRefreshMinutes,
-            menuBarMode: try container.decodeIfPresent(MenuBarMode.self, forKey: .menuBarMode) ?? .worstPercent,
+            menuBarMode: try container.decodeIfPresent(MenuBarMode.self, forKey: .menuBarMode) ?? .compact,
             alertsEnabled: try container.decodeIfPresent(Bool.self, forKey: .alertsEnabled) ?? true,
             alertThresholds: try container.decodeIfPresent([Double].self, forKey: .alertThresholds) ?? [75, 90, 100],
-            launchAtLogin: try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false,
+            launchAtLogin: try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? true,
             currency: try container.decodeIfPresent(Currency.self, forKey: .currency) ?? .usd,
             appearance: try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system,
             showEstimates: try container.decodeIfPresent(Bool.self, forKey: .showEstimates) ?? true,
